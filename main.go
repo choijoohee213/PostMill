@@ -51,6 +51,12 @@ func main() {
 	mux.HandleFunc("GET /new", a.handleNewForm)
 	mux.HandleFunc("POST /new", a.handleNewSubmit)
 	mux.HandleFunc("POST /drafts/{id}/retry", a.handleRetry)
+	mux.HandleFunc("GET /drafts/{id}", a.handleDraftEdit)
+	mux.HandleFunc("POST /drafts/{id}", a.handleDraftSave)
+	mux.HandleFunc("POST /drafts/{id}/regenerate", a.handleRegenerate)
+	mux.HandleFunc("POST /drafts/{id}/hold", a.handleHold)
+	mux.HandleFunc("POST /drafts/{id}/unhold", a.handleUnhold)
+	mux.HandleFunc("POST /drafts/{id}/delete", a.handleDelete)
 
 	port := os.Getenv("PORT")
 	if port == "" {

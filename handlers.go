@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"html/template"
 	"log"
 	"net/http"
@@ -238,4 +239,130 @@ func (a *app) generate(id int64, affiliate, memo string) {
 	if err := a.db.SetGenerated(ctx, id, body); err != nil {
 		fail("저장하지 못했습니다.", err)
 	}
+}
+
+type editData struct {
+	Post       *Post
+	Disclosure string
+	Preview    string
+	Reply      string
+	Room       int
+	Used       int
+	Error      string
+}
+
+// draftFor는 편집 가능한 초안을 읽는다. 생성 중이거나 없는 글은 목록으로 돌려보낸다.
+func (a *app) draftFor(w http.ResponseWriter, r *http.Request) (*Post, bool) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return nil, false
+	}
+	p, err := a.db.GetPost(r.Context(), id)
+	if err != nil {
+		http.NotFound(w, r)
+		return nil, false
+	}
+	if p.Status == StatusGenerating {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return nil, false
+	}
+	return p, true
+}
+
+func (a *app) handleDraftEdit(w http.ResponseWriter, r *http.Request) {
+	p, ok := a.draftFor(w, r)
+	if !ok {
+		return
+	}
+	a.renderEdit(w, p, "")
+}
+
+func (a *app) renderEdit(w http.ResponseWriter, p *Post, errMsg string) {
+	disclosure, _ := disclosureFor(p.Affiliate)
+	room, _ := BodyRoom(p.Affiliate)
+	reply, _ := ComposeReply(p.AffiliateLink)
+
+	// 미리보기는 발행과 같은 함수로 만든다. 화면과 실제 발행물이 달라질 수 없다.
+	preview, err := Compose(p.Affiliate, p.Body)
+	if err != nil && errMsg == "" {
+		errMsg = "지금 상태로는 발행할 수 없습니다: " + err.Error()
+	}
+
+	a.render(w, "edit.html", editData{
+		Post:       p,
+		Disclosure: disclosure,
+		Preview:    preview,
+		Reply:      reply,
+		Room:       room,
+		Used:       CharCount(strings.TrimSpace(p.Body)),
+		Error:      errMsg,
+	})
+}
+
+func (a *app) handleDraftSave(w http.ResponseWriter, r *http.Request) {
+	p, ok := a.draftFor(w, r)
+	if !ok {
+		return
+	}
+
+	body := strings.TrimSpace(r.FormValue("body"))
+	// 저장 자체는 막지 않는다. 발행 가능한지는 미리보기와 카운터가 알려준다.
+	if err := a.db.UpdateBody(r.Context(), p.ID, body); err != nil {
+		log.Printf("본문 저장 실패 (id=%d): %v", p.ID, err)
+		a.renderEdit(w, p, "저장하지 못했습니다.")
+		return
+	}
+	p.Body = body
+
+	http.Redirect(w, r, fmt.Sprintf("/drafts/%d", p.ID), http.StatusSeeOther)
+}
+
+func (a *app) handleRegenerate(w http.ResponseWriter, r *http.Request) {
+	p, ok := a.draftFor(w, r)
+	if !ok {
+		return
+	}
+	if err := a.db.SetStatus(r.Context(), p.ID, StatusGenerating); err != nil {
+		log.Printf("재생성 준비 실패 (id=%d): %v", p.ID, err)
+		a.renderEdit(w, p, "재생성을 시작하지 못했습니다.")
+		return
+	}
+	go a.generate(p.ID, p.Affiliate, p.Memo)
+
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func (a *app) handleHold(w http.ResponseWriter, r *http.Request) {
+	a.changeStatus(w, r, StatusHeld, "/?tab=held")
+}
+
+func (a *app) handleUnhold(w http.ResponseWriter, r *http.Request) {
+	a.changeStatus(w, r, StatusPending, "/")
+}
+
+func (a *app) changeStatus(w http.ResponseWriter, r *http.Request, status, redirect string) {
+	p, ok := a.draftFor(w, r)
+	if !ok {
+		return
+	}
+	if err := a.db.SetStatus(r.Context(), p.ID, status); err != nil {
+		log.Printf("상태 변경 실패 (id=%d): %v", p.ID, err)
+		a.renderEdit(w, p, "상태를 바꾸지 못했습니다.")
+		return
+	}
+	http.Redirect(w, r, redirect, http.StatusSeeOther)
+}
+
+func (a *app) handleDelete(w http.ResponseWriter, r *http.Request) {
+	p, ok := a.draftFor(w, r)
+	if !ok {
+		return
+	}
+	if err := a.db.DeletePost(r.Context(), p.ID); err != nil {
+		log.Printf("삭제 실패 (id=%d): %v", p.ID, err)
+		a.renderEdit(w, p, "삭제하지 못했습니다.")
+		return
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }

@@ -285,3 +285,92 @@ main {
 }
 
 .retry-why { color: #b0342a; }
+
+/* 편집 화면 */
+.back {
+  display: inline-block;
+  margin: 16px 0 12px;
+  color: var(--muted);
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.preview {
+  margin-bottom: 22px;
+}
+
+.preview-title {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.thread-post {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+}
+
+.thread-reply {
+  margin-top: 6px;
+  margin-left: 20px;
+}
+
+.reply-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.disclosure {
+  margin: 0 0 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed var(--line);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.thread-body {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.counter {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.counter.is-over {
+  color: #b0342a;
+  font-weight: 600;
+}
+
+.secondary-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.secondary-actions form { flex: 1; display: flex; }
+
+.btn-danger {
+  color: #b0342a;
+  border-color: #f0c8c4;
+}
+
+.memo {
+  margin-top: 24px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.memo summary { cursor: pointer; }
+.memo p { white-space: pre-wrap; }
