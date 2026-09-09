@@ -1,0 +1,160 @@
+:root {
+  --bg: #f7f7f8;
+  --card: #fff;
+  --text: #17181c;
+  --muted: #82838c;
+  --line: #e5e5e9;
+  --accent: #17181c;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+
+main {
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 0 16px 96px;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+
+.brand {
+  display: block;
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 14px 16px;
+  font-weight: 700;
+  color: var(--text);
+  text-decoration: none;
+}
+
+/* 탭 */
+.tabs {
+  display: flex;
+  gap: 4px;
+  padding: 12px 0;
+}
+
+.tab {
+  padding: 7px 14px;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.tab.is-active {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* 카드 */
+.cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.card-link {
+  display: block;
+  padding: 14px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.card.is-generating { padding: 14px; }
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.card-head time {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.badge {
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.badge-coupang { background: #ffeaea; color: #c0392b; }
+.badge-toss    { background: #e8f0ff; color: #1b64da; }
+.badge-failed  { background: #fdebd0; color: #a04000; }
+
+.card-body {
+  margin: 0;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+/* 생성 중 스켈레톤 */
+.skeleton span {
+  display: block;
+  height: 13px;
+  margin-top: 8px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #eee, #f6f6f6, #eee);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s infinite;
+}
+
+.skeleton span:last-child { width: 60%; }
+
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+.empty {
+  padding: 64px 0;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* 새 초안 버튼 */
+.fab {
+  position: fixed;
+  right: 20px;
+  bottom: 24px;
+  width: 52px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 28px;
+  text-decoration: none;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .2);
+}
