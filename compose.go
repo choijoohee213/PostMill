@@ -71,3 +71,18 @@ func Validate(affiliate, text string) error {
 	}
 	return nil
 }
+
+// BodyRoom은 문구와 링크를 뺀 뒤 본문에 쓸 수 있는 글자 수를 반환한다.
+// 편집 화면의 카운터와 초안 생성 프롬프트가 같은 값을 쓴다.
+func BodyRoom(affiliate, affiliateLink string) (int, error) {
+	disclosure, err := disclosureFor(affiliate)
+	if err != nil {
+		return 0, err
+	}
+	// 조립 형태: 문구 + "\n\n" + 본문 + "\n" + 링크
+	room := MaxChars - CharCount(disclosure) - 3 - CharCount(strings.TrimSpace(affiliateLink))
+	if room < 0 {
+		room = 0
+	}
+	return room, nil
+}

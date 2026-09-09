@@ -183,3 +183,12 @@ func (db *DB) SetState(ctx context.Context, key, value string) error {
 		key, value)
 	return err
 }
+
+// SetGenerateError는 초안 생성이 실패했을 때 사유만 기록한다.
+// 상태는 generating으로 남겨두고, 목록에서 재시도 버튼을 노출한다.
+func (db *DB) SetGenerateError(ctx context.Context, id int64, errMsg string) error {
+	_, err := db.pool.Exec(ctx,
+		`UPDATE posts SET error_msg = $2 WHERE id = $1 AND status = $3`,
+		id, errMsg, StatusGenerating)
+	return err
+}

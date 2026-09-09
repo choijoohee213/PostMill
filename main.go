@@ -7,6 +7,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+
+	"github.com/anthropics/anthropic-sdk-go"
 )
 
 //go:embed templates/*.html
@@ -16,8 +18,9 @@ var templateFS embed.FS
 var staticFS embed.FS
 
 type app struct {
-	db  *DB
-	tpl *template.Template
+	db     *DB
+	tpl    *template.Template
+	claude anthropic.Client
 }
 
 func main() {
@@ -37,11 +40,18 @@ func main() {
 		log.Fatalf("템플릿 파싱 실패: %v", err)
 	}
 
-	a := &app{db: db, tpl: tpl}
+	if os.Getenv("ANTHROPIC_API_KEY") == "" {
+		log.Fatal("ANTHROPIC_API_KEY가 설정되지 않았습니다")
+	}
+
+	a := &app{db: db, tpl: tpl, claude: anthropic.NewClient()}
 
 	mux := http.NewServeMux()
 	mux.Handle("GET /static/", http.FileServerFS(staticFS))
 	mux.HandleFunc("GET /{$}", a.handleList)
+	mux.HandleFunc("GET /new", a.handleNewForm)
+	mux.HandleFunc("POST /new", a.handleNewSubmit)
+	mux.HandleFunc("POST /drafts/{id}/retry", a.handleRetry)
 
 	port := os.Getenv("PORT")
 	if port == "" {
