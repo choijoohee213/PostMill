@@ -11,11 +11,11 @@
 | 뷰 | `html/template` 서버 사이드 렌더링 |
 | DB | PostgreSQL (Neon), 드라이버 `pgx` |
 | 호스팅 | Render 무료 웹 서비스 |
-| 초안 생성 | Claude API |
+| 초안 생성 | Gemini API (무료 티어), 표준 `net/http`로 직접 호출 |
 | 발행 | Threads Graph API |
 | 프론트 | 빌드 파이프라인 없음. CSS 1파일 + 바닐라 JS |
 
-의존성은 `github.com/jackc/pgx/v5`, `github.com/anthropics/anthropic-sdk-go` 두 개로 제한한다.
+의존성은 `github.com/jackc/pgx/v5` 하나뿐이다. Gemini와 Threads API는 표준 `net/http`로 직접 호출한다.
 크론 잡·백그라운드 워커·프론트 프레임워크는 쓰지 않는다.
 
 ## 환경변수
@@ -24,7 +24,7 @@
 DATABASE_URL
 SESSION_SECRET
 APP_PASSWORD
-ANTHROPIC_API_KEY
+GEMINI_API_KEY
 THREADS_APP_ID
 THREADS_APP_SECRET
 ```

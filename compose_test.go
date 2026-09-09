@@ -129,3 +129,33 @@ func TestValidate_조립_결과는_통과한다(t *testing.T) {
 		}
 	}
 }
+
+func TestBodyRoom_문구와_링크를_뺀_나머지(t *testing.T) {
+	room, err := BodyRoom(AffiliateCoupang, "https://l")
+	if err != nil {
+		t.Fatalf("에러: %v", err)
+	}
+
+	// 정확히 room만큼 쓰면 통과하고, 한 글자 더 쓰면 거부되어야 한다.
+	if _, err := Compose(AffiliateCoupang, strings.Repeat("가", room), "https://l"); err != nil {
+		t.Fatalf("%d자인데 거부됨: %v", room, err)
+	}
+	if _, err := Compose(AffiliateCoupang, strings.Repeat("가", room+1), "https://l"); err == nil {
+		t.Fatalf("%d자인데 통과됨", room+1)
+	}
+}
+
+func TestBodyRoom_토스가_쿠팡보다_좁다(t *testing.T) {
+	// 토스 문구가 더 길기 때문이다.
+	c, _ := BodyRoom(AffiliateCoupang, "https://l")
+	s, _ := BodyRoom(AffiliateToss, "https://l")
+	if s >= c {
+		t.Fatalf("토스 여유(%d)가 쿠팡(%d)보다 좁지 않다", s, c)
+	}
+}
+
+func TestBodyRoom_알_수_없는_제휴사는_거부(t *testing.T) {
+	if _, err := BodyRoom("naver", "https://l"); err == nil {
+		t.Fatal("에러가 없음")
+	}
+}

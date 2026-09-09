@@ -15,7 +15,14 @@
         <span class="badge badge-{{.Affiliate}}">{{affiliateKo .Affiliate}}</span>
         <time>{{formatTime .CreatedAt}}</time>
       </div>
-      <div class="skeleton"><span></span><span></span></div>
+      {{if canRetry .}}
+        <p class="retry-msg">생성이 멈춘 것 같습니다.{{if .ErrorMsg}}<br><span class="retry-why">{{.ErrorMsg}}</span>{{end}}</p>
+        <form method="post" action="/drafts/{{.ID}}/retry">
+          <button class="btn btn-small" type="submit">다시 시도</button>
+        </form>
+      {{else}}
+        <div class="skeleton"><span></span><span></span></div>
+      {{end}}
     {{else}}
       <a class="card-link" href="/drafts/{{.ID}}">
         <div class="card-head">
