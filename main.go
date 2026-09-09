@@ -2,9 +2,23 @@ package main
 
 import (
 	"context"
+	"embed"
+	"html/template"
 	"log"
+	"net/http"
 	"os"
 )
+
+//go:embed templates/*.html
+var templateFS embed.FS
+
+//go:embed static/*
+var staticFS embed.FS
+
+type app struct {
+	db  *DB
+	tpl *template.Template
+}
 
 func main() {
 	databaseURL := os.Getenv("DATABASE_URL")
@@ -18,5 +32,23 @@ func main() {
 	}
 	defer db.Close()
 
-	log.Println("스키마 초기화 완료")
+	tpl, err := template.New("").Funcs(templateFuncs).ParseFS(templateFS, "templates/*.html")
+	if err != nil {
+		log.Fatalf("템플릿 파싱 실패: %v", err)
+	}
+
+	a := &app{db: db, tpl: tpl}
+
+	mux := http.NewServeMux()
+	mux.Handle("GET /static/", http.FileServerFS(staticFS))
+	mux.HandleFunc("GET /{$}", a.handleList)
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	log.Printf("http://localhost:%s 에서 대기", port)
+	if err := http.ListenAndServe(":"+port, mux); err != nil {
+		log.Fatal(err)
+	}
 }

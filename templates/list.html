@@ -1,0 +1,40 @@
+{{template "head" .}}
+
+<nav class="tabs">
+  {{range .Tabs}}
+  <a class="tab{{if eq .Key $.ActiveTab}} is-active{{end}}" href="/?tab={{.Key}}">{{.Label}}</a>
+  {{end}}
+</nav>
+
+{{if .Posts}}
+<ul class="cards">
+  {{range .Posts}}
+  <li class="card{{if eq .Status "generating"}} is-generating{{end}}">
+    {{if eq .Status "generating"}}
+      <div class="card-head">
+        <span class="badge badge-{{.Affiliate}}">{{affiliateKo .Affiliate}}</span>
+        <time>{{formatTime .CreatedAt}}</time>
+      </div>
+      <div class="skeleton"><span></span><span></span></div>
+    {{else}}
+      <a class="card-link" href="/drafts/{{.ID}}">
+        <div class="card-head">
+          <span class="badge badge-{{.Affiliate}}">{{affiliateKo .Affiliate}}</span>
+          {{if eq .Status "failed"}}<span class="badge badge-failed">발행 실패</span>{{end}}
+          <time>{{formatTime .CreatedAt}}</time>
+        </div>
+        <p class="card-body">{{preview .Body}}</p>
+      </a>
+    {{end}}
+  </li>
+  {{end}}
+</ul>
+{{else}}
+<p class="empty">아직 글이 없습니다.</p>
+{{end}}
+
+<a class="fab" href="/new" aria-label="초안 만들기">+</a>
+
+{{if .Generating}}<div id="poll" hidden></div>{{end}}
+
+{{template "foot" .}}
