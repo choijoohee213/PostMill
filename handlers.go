@@ -217,7 +217,7 @@ func (a *app) handleRetry(w http.ResponseWriter, r *http.Request) {
 // generate는 요청과 무관하게 도는 백그라운드 작업이다.
 // 요청 컨텍스트를 쓰면 리다이렉트와 동시에 취소되므로 쓰지 않는다.
 func (a *app) generate(id int64, affiliate, affiliateLink, memo string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 
 	// 상세한 원인은 로그에만 남긴다. 화면에는 짧은 문장만 보여준다.

@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -15,6 +17,17 @@ import (
 const geminiModel = "gemini-3.6-flash"
 
 const geminiEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/"
+
+// 무료 티어는 붐빌 때 503이나 429를 자주 돌려준다. 몇 초 뒤면 대개 풀리므로
+// 사용자가 폰에서 재시도 버튼을 누르기 전에 알아서 다시 시도한다.
+const maxAttempts = 3
+
+var retryBackoff = []time.Duration{3 * time.Second, 8 * time.Second}
+
+// retryableError는 잠시 뒤 다시 시도하면 풀릴 가능성이 있는 실패다.
+type retryableError struct{ err error }
+
+func (e retryableError) Error() string { return e.err.Error() }
 
 const draftSystemPrompt = `너는 스레드(Threads)에 제휴 마케팅 글을 올리는 평범한 사람이다.
 광고 대행사가 아니라, 물건 써보고 좋아서 얘기하는 사람의 말투로 쓴다.
@@ -38,13 +51,20 @@ SNS 말투 (중요):
   ㅠㅠ, ;; : 불편했거나 아쉬웠던 얘기를 할 때만.
   좋았던 얘기에 ㅠㅠ를 붙이지 마라.
 
-사실 관계 (중요):
-- 사용자가 준 메모에 있는 내용만 쓴다.
-- 메모에 없는 구체적인 사실을 지어내지 않는다. 가격, 할인율, 브랜드명, 사용 기간,
-  구매 시기, 성능 수치, 다른 제품과의 비교는 메모에 있을 때만 쓴다.
-- 느낌과 말투는 자유롭게 살리되, 새로운 사실을 만들어내지는 마라.
-  예를 들어 메모에 "가볍다"만 있으면 "가벼워서 편하더라"는 되지만
+생생하게 쓰기:
+- 생생함이 가장 중요하다. 실제로 겪은 일처럼 장면이 그려지게 써라.
+- 상황, 장면, 감정, 사소한 일상 맥락은 자유롭게 지어내도 된다.
+  "장 보고 오는 길에", "지하철에서 쓰는데", "예전엔 그냥 참고 다녔는데" 같은
+  구체적인 장면을 넣으면 훨씬 살아난다.
+- 왜 샀는지, 어떤 상황에서 쓰는지, 쓰기 전엔 어땠는지를 이야기처럼 풀어라.
+
+단, 제품에 대한 사실은 지어내지 마라 (이것만은 예외 없다):
+- 가격, 할인율, 브랜드명, 모델명, 성능 수치, 용량, 크기, 무게 숫자,
+  배터리 시간, 다른 제품과의 비교는 메모에 있을 때만 쓴다.
+- 메모에 "가볍다"만 있으면 "가벼워서 한 손으로 들려"는 되지만
   "3kg밖에 안 돼서"는 안 된다.
+- 메모에 없는 기능을 있다고 하지 마라.
+- 장면과 감정은 마음껏, 제품 스펙은 메모 안에서.
 
 쓰지 말 것:
 - 이모지, 해시태그
@@ -58,14 +78,16 @@ SNS 말투 (중요):
 // Gemini는 Generative Language API를 표준 net/http로 호출한다.
 // 클라이언트 라이브러리를 쓰지 않는다 (SPEC 9-1).
 type Gemini struct {
-	APIKey string
-	HTTP   *http.Client
+	APIKey  string
+	HTTP    *http.Client
+	BaseURL string // 테스트에서 가짜 서버를 가리키기 위해 주입할 수 있다
 }
 
 func NewGemini(apiKey string) *Gemini {
 	return &Gemini{
-		APIKey: apiKey,
-		HTTP:   &http.Client{Timeout: 2 * time.Minute},
+		APIKey:  apiKey,
+		HTTP:    &http.Client{Timeout: 90 * time.Second},
+		BaseURL: geminiEndpoint,
 	}
 }
 
@@ -109,7 +131,35 @@ type geminiResponse struct {
 
 // GenerateDraft는 메모를 바탕으로 본문 초안을 만든다.
 // 대가성 문구와 링크는 포함하지 않는다 (compose.go가 발행 시점에 붙인다).
+// 일시적인 실패는 maxAttempts만큼 다시 시도한다.
 func (g *Gemini) GenerateDraft(ctx context.Context, affiliate, memo string, room int) (string, error) {
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if attempt > 0 {
+			wait := retryBackoff[attempt-1]
+			log.Printf("초안 생성 재시도 %d/%d (%v 후): %v", attempt+1, maxAttempts, wait, lastErr)
+			select {
+			case <-time.After(wait):
+			case <-ctx.Done():
+				return "", ctx.Err()
+			}
+		}
+
+		body, err := g.generateOnce(ctx, affiliate, memo, room)
+		if err == nil {
+			return body, nil
+		}
+		lastErr = err
+
+		var retryable retryableError
+		if !errors.As(err, &retryable) {
+			return "", err
+		}
+	}
+	return "", fmt.Errorf("%d번 시도했지만 실패했다: %w", maxAttempts, lastErr)
+}
+
+func (g *Gemini) generateOnce(ctx context.Context, affiliate, memo string, room int) (string, error) {
 	prompt := fmt.Sprintf(`제휴사: %s
 상품 메모:
 %s
@@ -128,7 +178,7 @@ func (g *Gemini) GenerateDraft(ctx context.Context, affiliate, memo string, room
 		return "", err
 	}
 
-	url := geminiEndpoint + geminiModel + ":generateContent"
+	url := g.BaseURL + geminiModel + ":generateContent"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
 		return "", err
@@ -138,7 +188,8 @@ func (g *Gemini) GenerateDraft(ctx context.Context, affiliate, memo string, room
 
 	resp, err := g.HTTP.Do(req)
 	if err != nil {
-		return "", err
+		// 연결 실패나 타임아웃은 다시 시도해볼 만하다.
+		return "", retryableError{err}
 	}
 	defer resp.Body.Close()
 
@@ -156,7 +207,13 @@ func (g *Gemini) GenerateDraft(ctx context.Context, affiliate, memo string, room
 		if msg == "" {
 			msg = "본문 없음"
 		}
-		return "", fmt.Errorf("HTTP %d: %s", resp.StatusCode, msg)
+		statusErr := fmt.Errorf("HTTP %d: %s", resp.StatusCode, msg)
+		// 429(요청 과다)와 5xx(서버 혼잡)는 잠시 뒤면 풀린다.
+		// 400이나 401 같은 요청 자체의 문제는 다시 보내도 같은 결과다.
+		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
+			return "", retryableError{statusErr}
+		}
+		return "", statusErr
 	}
 	if parsed.PromptFeedback.BlockReason != "" {
 		return "", fmt.Errorf("요청이 차단되었다: %s", parsed.PromptFeedback.BlockReason)
@@ -177,11 +234,12 @@ func (g *Gemini) GenerateDraft(ctx context.Context, affiliate, memo string, room
 	}
 
 	body := strings.TrimSpace(b.String())
+	// 아래 둘은 생성이 매번 달라지므로 다시 뽑으면 통과할 수 있다.
 	if body == "" {
-		return "", fmt.Errorf("모델이 빈 응답을 반환했다")
+		return "", retryableError{fmt.Errorf("모델이 빈 응답을 반환했다")}
 	}
 	if n := CharCount(body); n > room {
-		return "", fmt.Errorf("생성된 본문이 %d자로 여유 %d자를 넘는다", n, room)
+		return "", retryableError{fmt.Errorf("생성된 본문이 %d자로 여유 %d자를 넘는다", n, room)}
 	}
 	return body, nil
 }
