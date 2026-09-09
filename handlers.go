@@ -32,7 +32,9 @@ var templateFuncs = template.FuncMap{
 
 // staleAfter가 지나도록 generating에 머문 초안은 goroutine이 죽은 것으로 본다.
 // Render 무료 티어는 요청 타임아웃과 sleep이 있어 실제로 일어난다.
-const staleAfter = 2 * time.Minute
+// 실측상 생성에 60~100초가 걸리므로, 아직 도는 중인 초안에 재시도 버튼이
+// 뜨지 않도록 넉넉히 잡는다. 두 번 생성하면 무료 할당량만 낭비된다.
+const staleAfter = 5 * time.Minute
 
 // canRetry는 목록에 재시도 버튼을 노출할지 정한다.
 func canRetry(p *Post) bool {
