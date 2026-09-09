@@ -1,0 +1,45 @@
+{{template "head" .}}
+
+<h1 class="page-title">초안 만들기</h1>
+
+{{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+
+<form class="form" method="post" action="/new">
+  <fieldset class="field">
+    <legend>제휴사</legend>
+    <div class="choices">
+      {{range $.Affiliates}}
+      <label class="choice">
+        <input type="radio" name="affiliate" value="{{.Key}}"{{if eq .Key $.Form.Affiliate}} checked{{end}}>
+        <span>{{.Label}}</span>
+      </label>
+      {{end}}
+    </div>
+  </fieldset>
+
+  <label class="field">
+    <span class="label">제휴 링크</span>
+    <input type="url" name="affiliate_link" value="{{.Form.AffiliateLink}}"
+           placeholder="https://" inputmode="url" required>
+    <span class="hint">앱에서 복사한 링크를 그대로 붙여넣으세요.</span>
+  </label>
+
+  <label class="field">
+    <span class="label">상품 페이지 <em>(선택)</em></span>
+    <input type="url" name="product_url" value="{{.Form.ProductURL}}" placeholder="https://" inputmode="url">
+  </label>
+
+  <label class="field">
+    <span class="label">상품 메모</span>
+    <textarea name="memo" rows="6" required
+              placeholder="어떤 상품인지, 어떤 점이 좋았는지, 원하는 톤을 적어주세요.">{{.Form.Memo}}</textarea>
+    <span class="hint">여기 적은 내용만 글에 들어갑니다. 적지 않은 가격이나 수치는 지어내지 않습니다.</span>
+  </label>
+
+  <div class="actions">
+    <a class="btn btn-ghost" href="/">취소</a>
+    <button class="btn btn-primary" type="submit">초안 만들기</button>
+  </div>
+</form>
+
+{{template "foot" .}}
