@@ -1,0 +1,20 @@
+# 프로젝트 스펙 (커밋 금지)
+SPEC.md
+
+# 환경변수
+.env
+.env.*
+
+# Go 빌드 산출물
+/postmill
+*.exe
+*.test
+*.out
+
+# 에디터 / OS
+.DS_Store
+.idea/
+.vscode/
+
+# 로컬 Claude Code 설정
+.claude/settings.local.json
