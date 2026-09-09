@@ -167,7 +167,7 @@ func (a *app) handleNewSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 생성은 백그라운드로 넘기고 즉시 목록으로 보낸다.
-	go a.generate(id, form.Affiliate, form.AffiliateLink, form.Memo)
+	go a.generate(id, form.Affiliate, form.Memo)
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
@@ -178,10 +178,6 @@ func validateNewForm(f newForm) string {
 	}
 	if f.AffiliateLink == "" {
 		return "제휴 링크를 입력해주세요."
-	}
-	room, _ := BodyRoom(f.Affiliate, f.AffiliateLink)
-	if room <= 0 {
-		return "제휴 링크가 너무 길어 본문을 쓸 여유가 없습니다."
 	}
 	if f.Memo == "" {
 		return "상품 메모를 입력해주세요."
@@ -209,14 +205,14 @@ func (a *app) handleRetry(w http.ResponseWriter, r *http.Request) {
 	if err := a.db.SetGenerateError(r.Context(), id, ""); err != nil {
 		log.Printf("재시도 준비 실패: %v", err)
 	}
-	go a.generate(id, p.Affiliate, p.AffiliateLink, p.Memo)
+	go a.generate(id, p.Affiliate, p.Memo)
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 // generate는 요청과 무관하게 도는 백그라운드 작업이다.
 // 요청 컨텍스트를 쓰면 리다이렉트와 동시에 취소되므로 쓰지 않는다.
-func (a *app) generate(id int64, affiliate, affiliateLink, memo string) {
+func (a *app) generate(id int64, affiliate, memo string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 
@@ -228,7 +224,7 @@ func (a *app) generate(id int64, affiliate, affiliateLink, memo string) {
 		}
 	}
 
-	room, err := BodyRoom(affiliate, affiliateLink)
+	room, err := BodyRoom(affiliate)
 	if err != nil {
 		fail("제휴사 정보가 잘못되었습니다.", err)
 		return
