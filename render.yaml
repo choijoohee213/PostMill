@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: postmill
+    runtime: go
+    plan: free
+    # DB(Neon)와 같은 지역에 둔다. 페이지 한 번에 DB를 여러 번 오가므로
+    # 서버-DB 거리가 사용자-서버 거리보다 체감에 크게 영향을 준다.
+    region: ohio
+    buildCommand: go build -o postmill .
+    startCommand: ./postmill
+    # healthCheckPath를 두지 않는다. 주기적인 헬스 체크가 인바운드 트래픽으로
+    # 잡히면 무료 인스턴스가 잠들지 않아 월 750시간 한도를 다 써버릴 수 있다.
+    envVars:
+      - key: GO_VERSION
+        value: "1.26.5"
+      # 아래 값들은 Render 대시보드에서 직접 입력한다.
+      # sync: false 는 blueprint에 값을 적지 않겠다는 뜻이다.
+      - key: DATABASE_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: APP_PASSWORD
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: THREADS_APP_ID
+        sync: false
+      - key: THREADS_APP_SECRET
+        sync: false
