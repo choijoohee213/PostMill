@@ -14,7 +14,10 @@ import (
 // 목록을 보는 것처럼 토큰이 필요 없는 작업까지 막을 이유가 없다.
 func (a *app) tokenKeeper(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		a.refreshTokenIfNeeded(r.Context())
+		// 정적 파일과 로그인 화면에서는 DB를 건드리지 않는다.
+		if !isPublicPath(r.URL.Path) {
+			a.refreshTokenIfNeeded(r.Context())
+		}
 		next.ServeHTTP(w, r)
 	})
 }

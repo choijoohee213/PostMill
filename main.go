@@ -21,6 +21,11 @@ type app struct {
 	gemini  *Gemini
 	threads *Threads
 
+	session   *session
+	password  string
+	appID     string
+	appSecret string
+
 	testTpl *template.Template // 테스트에서 전체 템플릿 없이 렌더링하기 위해 쓴다
 }
 
@@ -46,10 +51,31 @@ func main() {
 		log.Fatal("GEMINI_API_KEY가 설정되지 않았습니다")
 	}
 
-	a := &app{db: db, tpl: tpl, gemini: NewGemini(apiKey), threads: NewThreads()}
+	password := os.Getenv("APP_PASSWORD")
+	if password == "" {
+		log.Fatal("APP_PASSWORD가 설정되지 않았습니다")
+	}
+	secret := os.Getenv("SESSION_SECRET")
+	if secret == "" {
+		log.Fatal("SESSION_SECRET이 설정되지 않았습니다")
+	}
+
+	a := &app{
+		db:        db,
+		tpl:       tpl,
+		gemini:    NewGemini(apiKey),
+		threads:   NewThreads(),
+		session:   &session{secret: []byte(secret)},
+		password:  password,
+		appID:     os.Getenv("THREADS_APP_ID"),
+		appSecret: os.Getenv("THREADS_APP_SECRET"),
+	}
 
 	mux := http.NewServeMux()
 	mux.Handle("GET /static/", http.FileServerFS(staticFS))
+	mux.HandleFunc("GET /login", a.handleLoginForm)
+	mux.HandleFunc("POST /login", a.handleLogin)
+	mux.HandleFunc("POST /logout", a.handleLogout)
 	mux.HandleFunc("GET /{$}", a.handleList)
 	mux.HandleFunc("GET /new", a.handleNewForm)
 	mux.HandleFunc("POST /new", a.handleNewSubmit)
@@ -61,13 +87,17 @@ func main() {
 	mux.HandleFunc("POST /drafts/{id}/unhold", a.handleUnhold)
 	mux.HandleFunc("POST /drafts/{id}/delete", a.handleDelete)
 	mux.HandleFunc("POST /drafts/{id}/publish", a.handlePublish)
+	mux.HandleFunc("GET /history", a.handleHistory)
+	mux.HandleFunc("GET /connect", a.handleConnectForm)
+	mux.HandleFunc("POST /connect", a.handleConnect)
+	mux.HandleFunc("POST /disconnect", a.handleDisconnect)
 
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
 	log.Printf("http://localhost:%s 에서 대기", port)
-	if err := http.ListenAndServe(":"+port, a.tokenKeeper(mux)); err != nil {
+	if err := http.ListenAndServe(":"+port, a.requireAuth(a.tokenKeeper(mux))); err != nil {
 		log.Fatal(err)
 	}
 }

@@ -210,3 +210,43 @@ func (t *Threads) refreshAt(ctx context.Context, base, token string) (string, ti
 	}
 	return out.AccessToken, time.Now().Add(time.Duration(out.ExpiresIn) * time.Second), nil
 }
+
+// ExchangeToken은 대시보드에서 받은 1시간짜리 단기 토큰을
+// 60일짜리 장기 토큰으로 교환한다.
+func (t *Threads) ExchangeToken(ctx context.Context, appSecret, shortToken string) (string, time.Time, error) {
+	return t.exchangeAt(ctx, threadsTokenAPI, appSecret, shortToken)
+}
+
+func (t *Threads) exchangeAt(ctx context.Context, base, appSecret, shortToken string) (string, time.Time, error) {
+	u := fmt.Sprintf("%saccess_token?grant_type=th_exchange_token&client_secret=%s&access_token=%s",
+		base, url.QueryEscape(appSecret), url.QueryEscape(shortToken))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	resp, err := t.HTTP.Do(req)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	defer resp.Body.Close()
+
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode != http.StatusOK {
+		var e threadsError
+		json.Unmarshal(raw, &e)
+		if e.Error.Message != "" {
+			return "", time.Time{}, fmt.Errorf("%s", e.Error.Message)
+		}
+		return "", time.Time{}, fmt.Errorf("토큰 교환 실패 (HTTP %d)", resp.StatusCode)
+	}
+
+	var out struct {
+		AccessToken string `json:"access_token"`
+		ExpiresIn   int64  `json:"expires_in"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil || out.AccessToken == "" {
+		return "", time.Time{}, fmt.Errorf("교환 응답을 해석하지 못했다")
+	}
+	return out.AccessToken, time.Now().Add(time.Duration(out.ExpiresIn) * time.Second), nil
+}

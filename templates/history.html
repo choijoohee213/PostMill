@@ -1,0 +1,28 @@
+{{template "head" .}}
+
+<h1 class="page-title">발행 이력</h1>
+
+{{if .}}
+<ul class="cards">
+  {{range .}}
+  <li class="card">
+    <div class="card-link">
+      <div class="card-head">
+        <span class="badge badge-{{.Affiliate}}">{{affiliateKo .Affiliate}}</span>
+        {{if .ErrorMsg}}<span class="badge badge-failed">답글 실패</span>{{end}}
+        <time>{{if .PublishedAt}}{{formatTime .PublishedAt}}{{else}}-{{end}}</time>
+      </div>
+      <p class="card-body">{{preview .Body}}</p>
+      <div class="card-links">
+        {{if .ThreadPermalink}}<a href="{{.ThreadPermalink}}" target="_blank" rel="noopener">스레드에서 보기</a>{{end}}
+        <a href="/drafts/{{.ID}}">내용 보기</a>
+      </div>
+    </div>
+  </li>
+  {{end}}
+</ul>
+{{else}}
+<p class="empty">아직 발행한 글이 없습니다.</p>
+{{end}}
+
+{{template "foot" .}}

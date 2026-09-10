@@ -207,3 +207,24 @@ func (db *DB) SetPublishNote(ctx context.Context, id int64, note string) error {
 	_, err := db.pool.Exec(ctx, `UPDATE posts SET error_msg = $2 WHERE id = $1`, id, note)
 	return err
 }
+
+// ListPublished는 발행 이력을 최신 발행순으로 반환한다.
+func (db *DB) ListPublished(ctx context.Context) ([]*Post, error) {
+	rows, err := db.pool.Query(ctx,
+		`SELECT `+postColumns+` FROM posts WHERE status = $1 ORDER BY published_at DESC NULLS LAST`,
+		StatusPublished)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var posts []*Post
+	for rows.Next() {
+		p, err := scanPost(rows)
+		if err != nil {
+			return nil, err
+		}
+		posts = append(posts, p)
+	}
+	return posts, rows.Err()
+}
