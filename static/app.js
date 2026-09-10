@@ -22,3 +22,13 @@ if (body) {
   body.addEventListener('input', update);
   update();
 }
+
+// 발행 버튼은 네트워크가 느리면 두 번 눌리기 쉽다. 첫 제출에 잠근다.
+// 서버도 조건부 UPDATE로 막지만, 버튼이 계속 눌리는 화면은 불안하다.
+document.querySelectorAll('[data-publish]').forEach(function (form) {
+  form.addEventListener('submit', function () {
+    var btn = form.querySelector('button');
+    btn.disabled = true;
+    btn.textContent = '발행 중...';
+  });
+});

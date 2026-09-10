@@ -16,9 +16,12 @@ var templateFS embed.FS
 var staticFS embed.FS
 
 type app struct {
-	db     *DB
-	tpl    *template.Template
-	gemini *Gemini
+	db      *DB
+	tpl     *template.Template
+	gemini  *Gemini
+	threads *Threads
+
+	testTpl *template.Template // 테스트에서 전체 템플릿 없이 렌더링하기 위해 쓴다
 }
 
 func main() {
@@ -43,7 +46,7 @@ func main() {
 		log.Fatal("GEMINI_API_KEY가 설정되지 않았습니다")
 	}
 
-	a := &app{db: db, tpl: tpl, gemini: NewGemini(apiKey)}
+	a := &app{db: db, tpl: tpl, gemini: NewGemini(apiKey), threads: NewThreads()}
 
 	mux := http.NewServeMux()
 	mux.Handle("GET /static/", http.FileServerFS(staticFS))
@@ -57,13 +60,14 @@ func main() {
 	mux.HandleFunc("POST /drafts/{id}/hold", a.handleHold)
 	mux.HandleFunc("POST /drafts/{id}/unhold", a.handleUnhold)
 	mux.HandleFunc("POST /drafts/{id}/delete", a.handleDelete)
+	mux.HandleFunc("POST /drafts/{id}/publish", a.handlePublish)
 
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
 	log.Printf("http://localhost:%s 에서 대기", port)
-	if err := http.ListenAndServe(":"+port, mux); err != nil {
+	if err := http.ListenAndServe(":"+port, a.tokenKeeper(mux)); err != nil {
 		log.Fatal(err)
 	}
 }

@@ -374,3 +374,17 @@ main {
 
 .memo summary { cursor: pointer; }
 .memo p { white-space: pre-wrap; }
+
+.publish-form { margin-top: 10px; }
+.publish-form .btn { width: 100%; }
+
+.notice {
+  margin: 0 0 14px;
+  padding: 11px 12px;
+  border-radius: 10px;
+  background: #eef3ff;
+  color: #1b3f8f;
+  font-size: 14px;
+}
+
+.notice a { color: inherit; }

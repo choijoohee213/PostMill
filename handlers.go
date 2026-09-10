@@ -111,7 +111,11 @@ func (a *app) handleList(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) render(w http.ResponseWriter, name string, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := a.tpl.ExecuteTemplate(w, name, data); err != nil {
+	tpl := a.tpl
+	if tpl == nil {
+		tpl = a.testTpl
+	}
+	if err := tpl.ExecuteTemplate(w, name, data); err != nil {
 		log.Printf("템플릿 렌더 실패 (%s): %v", name, err)
 	}
 }
@@ -365,4 +369,67 @@ func (a *app) handleDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// handlePublish는 검수를 마친 초안을 스레드에 올린다.
+func (a *app) handlePublish(w http.ResponseWriter, r *http.Request) {
+	p, ok := a.draftFor(w, r)
+	if !ok {
+		return
+	}
+
+	// 발행 직전 가드. 조립에 실패하면 여기서 멈춘다 (SPEC 5-1).
+	text, err := Compose(p.Affiliate, p.Body)
+	if err != nil {
+		a.renderEdit(w, p, "발행할 수 없습니다: "+err.Error())
+		return
+	}
+	reply, err := ComposeReply(p.AffiliateLink)
+	if err != nil {
+		a.renderEdit(w, p, "발행할 수 없습니다: "+err.Error())
+		return
+	}
+
+	token, hasToken, err := a.db.GetState(r.Context(), stateAccessToken)
+	if err != nil || !hasToken || token == "" {
+		a.renderEdit(w, p, "스레드 계정이 아직 연결되지 않았습니다.")
+		return
+	}
+
+	// 한 번의 조건부 UPDATE로 선점한다. 두 번째 요청은 여기서 걸린다.
+	claimed, err := a.db.ClaimForPublish(r.Context(), p.ID)
+	if err != nil {
+		log.Printf("발행 선점 실패 (id=%d): %v", p.ID, err)
+		a.renderEdit(w, p, "발행을 시작하지 못했습니다.")
+		return
+	}
+	if !claimed {
+		// 이미 다른 요청이 발행 중이다. 조용히 목록으로 보낸다.
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+
+	res, err := a.threads.Publish(r.Context(), token, text, reply)
+	if err != nil {
+		log.Printf("발행 실패 (id=%d): %v", p.ID, err)
+		if dbErr := a.db.MarkFailed(r.Context(), p.ID, "스레드에 올리지 못했습니다."); dbErr != nil {
+			log.Printf("실패 기록도 실패 (id=%d): %v", p.ID, dbErr)
+		}
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+
+	if err := a.db.MarkPublished(r.Context(), p.ID, res.Permalink); err != nil {
+		log.Printf("발행 기록 실패 (id=%d): %v", p.ID, err)
+	}
+	// 본문은 올라갔는데 링크 답글만 실패한 경우. 발행을 되돌리지 않고 알리기만 한다.
+	if res.ReplyErr != nil {
+		log.Printf("링크 답글 실패 (id=%d): %v", p.ID, res.ReplyErr)
+		if dbErr := a.db.SetPublishNote(r.Context(), p.ID,
+			"글은 올라갔지만 링크 답글에 실패했습니다. 스레드에서 직접 링크를 답글로 달아주세요."); dbErr != nil {
+			log.Printf("답글 실패 기록도 실패 (id=%d): %v", p.ID, dbErr)
+		}
+	}
+
+	http.Redirect(w, r, "/?tab=published", http.StatusSeeOther)
 }
