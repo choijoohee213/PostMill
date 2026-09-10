@@ -6,7 +6,6 @@ import (
 	"html/template"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -16,12 +15,7 @@ import (
 // 발행 핸들러 전체를 실제 DB + 가짜 Threads로 돌린다.
 func newTestApp(t *testing.T, threadsSrv *httptest.Server) *app {
 	t.Helper()
-	db, err := Open(context.Background(), os.Getenv("DATABASE_URL"))
-	if err != nil {
-		t.Skipf("DATABASE_URL 없음: %v", err)
-	}
-	t.Cleanup(db.Close)
-	restoreToken(t, db)
+	db := openTestDB(t)
 
 	th := NewThreads()
 	th.HTTP = threadsSrv.Client()
@@ -150,24 +144,4 @@ func TestPublishHandler_본문이_비면_발행하지_않는다(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "발행할 수 없습니다") {
 		t.Fatalf("가드가 동작하지 않았다: %q", rec.Body.String())
 	}
-}
-
-// restoreToken은 테스트가 끝나면 원래 토큰 상태로 되돌린다.
-//
-// 개발 DB와 운영 DB가 같은 Neon 프로젝트라, 이걸 하지 않으면 테스트가
-// 실제 연결을 가짜 토큰으로 덮어써서 앱이 연결된 것처럼 보이게 된다.
-func restoreToken(t *testing.T, db *DB) {
-	t.Helper()
-	ctx := context.Background()
-	before, had, err := db.GetState(ctx, stateAccessToken)
-	if err != nil {
-		t.Fatalf("토큰 상태를 읽지 못했다: %v", err)
-	}
-	t.Cleanup(func() {
-		if had {
-			db.SetState(ctx, stateAccessToken, before)
-			return
-		}
-		db.pool.Exec(ctx, `DELETE FROM app_state WHERE key = $1`, stateAccessToken)
-	})
 }
