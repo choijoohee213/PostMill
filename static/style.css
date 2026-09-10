@@ -193,6 +193,8 @@ main {
 }
 
 .field input[type="url"],
+.field input[type="password"],
+.field input[type="text"],
 .field textarea {
   width: 100%;
   padding: 11px 12px;
@@ -388,3 +390,79 @@ main {
 }
 
 .notice a { color: inherit; }
+
+/* 상단 네비 */
+.topbar-inner {
+  display: flex;
+  align-items: center;
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
+.topbar-inner .brand { padding: 14px 0; }
+
+.topnav {
+  margin-left: auto;
+  display: flex;
+  gap: 14px;
+}
+
+.topnav a {
+  color: var(--muted);
+  font-size: 14px;
+  text-decoration: none;
+}
+
+/* 설정 화면 */
+.panel {
+  margin: 20px 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+}
+
+.panel-title {
+  margin: 0 0 10px;
+  font-size: 16px;
+}
+
+.panel-status {
+  margin: 0 0 4px;
+  font-weight: 600;
+  color: #1b7f4b;
+}
+
+.panel-status-off { color: var(--muted); }
+
+.steps {
+  margin: 12px 0;
+  padding-left: 20px;
+  font-size: 14px;
+  line-height: 1.9;
+}
+
+.steps a { color: inherit; }
+
+.panel .form { margin-top: 14px; }
+
+.panel textarea {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.card-links {
+  display: flex;
+  gap: 14px;
+  margin-top: 10px;
+  font-size: 14px;
+}
+
+.card-links a { color: var(--muted); }

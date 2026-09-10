@@ -1,0 +1,47 @@
+{{template "head" .}}
+
+<h1 class="page-title">설정</h1>
+
+{{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+{{if .Done}}<p class="notice">스레드 계정을 연결했습니다.</p>{{end}}
+
+<section class="panel">
+  <h2 class="panel-title">스레드 연결</h2>
+
+  {{if .Connected}}
+    <p class="panel-status">연결됨{{if .ExpiresAt}} · 토큰 만료 {{.ExpiresAt}}{{end}}</p>
+    <p class="hint">만료가 가까워지면 접속할 때 자동으로 갱신됩니다.</p>
+    <form method="post" action="/disconnect"
+          onsubmit="return confirm('연결을 해제할까요? 다시 연결하려면 토큰을 새로 만들어야 합니다.')">
+      <button class="btn" type="submit">연결 해제</button>
+    </form>
+  {{else}}
+    <p class="panel-status panel-status-off">연결되지 않음</p>
+    <ol class="steps">
+      <li><a href="https://developers.facebook.com/apps/{{.AppID}}/use_cases/" target="_blank" rel="noopener">Meta 개발자 대시보드</a> 열기</li>
+      <li>이용 사례 → Threads API 맞춤 설정 → <b>사용자 토큰 생성기</b></li>
+      <li><b>토큰 생성</b>을 누르고 나온 값을 복사</li>
+      <li>아래에 붙여넣고 연결</li>
+    </ol>
+    <p class="hint">생성된 토큰은 1시간이면 만료됩니다. 여기 붙여넣으면 60일짜리로 바꿔 저장하고, 이후에는 자동으로 갱신합니다.</p>
+
+    <form class="form" method="post" action="/connect">
+      <label class="field">
+        <span class="label">단기 토큰</span>
+        <textarea name="token" rows="4" placeholder="TH..." required></textarea>
+      </label>
+      <div class="actions">
+        <button class="btn btn-primary" type="submit">연결</button>
+      </div>
+    </form>
+  {{end}}
+</section>
+
+<section class="panel">
+  <h2 class="panel-title">계정</h2>
+  <form method="post" action="/logout">
+    <button class="btn" type="submit">로그아웃</button>
+  </form>
+</section>
+
+{{template "foot" .}}

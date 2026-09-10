@@ -54,8 +54,20 @@ func preview(body string) string {
 	return strings.Join(lines, "\n")
 }
 
-func formatTime(t time.Time) string {
-	return t.Local().Format("1월 2일 15:04")
+// formatTime은 time.Time과 *time.Time을 모두 받는다.
+// published_at은 미발행 상태를 구분하려고 nullable이라 포인터로 온다.
+func formatTime(v any) string {
+	switch t := v.(type) {
+	case time.Time:
+		return t.Local().Format("1월 2일 15:04")
+	case *time.Time:
+		if t == nil {
+			return "-"
+		}
+		return t.Local().Format("1월 2일 15:04")
+	default:
+		return "-"
+	}
 }
 
 func affiliateKo(a string) string {
@@ -390,9 +402,9 @@ func (a *app) handlePublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, hasToken, err := a.db.GetState(r.Context(), stateAccessToken)
-	if err != nil || !hasToken || token == "" {
-		a.renderEdit(w, p, "스레드 계정이 아직 연결되지 않았습니다.")
+	token, ok := a.currentToken(r.Context())
+	if !ok {
+		a.renderEdit(w, p, "스레드 계정이 아직 연결되지 않았습니다. 설정에서 연결해주세요.")
 		return
 	}
 

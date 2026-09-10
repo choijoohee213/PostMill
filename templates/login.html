@@ -1,0 +1,17 @@
+{{template "head_plain" .}}
+
+<h1 class="page-title">로그인</h1>
+
+{{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+
+<form class="form" method="post" action="/login">
+  <label class="field">
+    <span class="label">비밀번호</span>
+    <input type="password" name="password" autocomplete="current-password" autofocus required>
+  </label>
+  <div class="actions">
+    <button class="btn btn-primary" type="submit">로그인</button>
+  </div>
+</form>
+
+{{template "foot" .}}
