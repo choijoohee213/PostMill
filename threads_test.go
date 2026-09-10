@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -20,6 +21,7 @@ type capturedCall struct {
 func fakeThreads(t *testing.T, opts fakeOpts) (*Threads, *[]capturedCall) {
 	t.Helper()
 	var calls []capturedCall
+	statusCalls := 0
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.ParseForm()
@@ -48,7 +50,21 @@ func fakeThreads(t *testing.T, opts fakeOpts) (*Threads, *[]capturedCall) {
 		case path == "/me/threads_publish":
 			fmt.Fprint(w, `{"id":"post-99"}`)
 
-		default: // 퍼머링크 조회
+		default:
+			// 컨테이너 상태 조회와 퍼머링크 조회가 같은 경로 모양이다.
+			if r.URL.Query().Get("fields") == "status,error_message" {
+				st := "FINISHED"
+				if opts.containerStatuses != nil {
+					i := statusCalls
+					if i >= len(opts.containerStatuses) {
+						i = len(opts.containerStatuses) - 1
+					}
+					st = opts.containerStatuses[i]
+					statusCalls++
+				}
+				json.NewEncoder(w).Encode(map[string]string{"status": st, "error_message": opts.containerError})
+				return
+			}
 			if opts.permalinkFails {
 				w.WriteHeader(http.StatusInternalServerError)
 				return
@@ -70,6 +86,8 @@ type fakeOpts struct {
 	bodyFails           bool
 	replyContainerFails bool
 	permalinkFails      bool
+	containerStatuses   []string // 상태 조회에 순서대로 돌려줄 값
+	containerError      string
 }
 
 func TestPublish_본문과_답글을_순서대로_올린다(t *testing.T) {
@@ -89,20 +107,24 @@ func TestPublish_본문과_답글을_순서대로_올린다(t *testing.T) {
 		t.Fatalf("ReplyErr=%v", res.ReplyErr)
 	}
 
-	// 본문 컨테이너 → 본문 발행 → 답글 컨테이너 → 답글 발행 → 퍼머링크
-	if len(*calls) != 5 {
+	// 본문 컨테이너 → 상태 확인 → 발행 → 답글 컨테이너 → 상태 확인 → 발행 → 퍼머링크
+	if len(*calls) != 7 {
 		t.Fatalf("호출 %d회: %+v", len(*calls), *calls)
 	}
 	c := *calls
 	if c[0].Text != "본문 텍스트" || c[0].ReplyTo != "" {
 		t.Errorf("본문 컨테이너가 이상함: %+v", c[0])
 	}
-	if c[2].Text != "https://link" {
-		t.Errorf("답글 본문이 이상함: %+v", c[2])
+	// 발행 전에 반드시 상태를 확인해야 한다. 준비되기 전에 발행하면 실패한다.
+	if c[1].Path == "/me/threads_publish" {
+		t.Error("상태를 확인하지 않고 발행했다")
+	}
+	if c[3].Text != "https://link" {
+		t.Errorf("답글 본문이 이상함: %+v", c[3])
 	}
 	// 답글은 발행된 글 ID를 가리켜야 한다. 컨테이너 ID가 아니다.
-	if c[2].ReplyTo != "post-99" {
-		t.Errorf("답글 대상이 %q, post-99여야 한다", c[2].ReplyTo)
+	if c[3].ReplyTo != "post-99" {
+		t.Errorf("답글 대상이 %q, post-99여야 한다", c[3].ReplyTo)
 	}
 }
 
@@ -174,5 +196,62 @@ func TestRefreshToken_새_토큰과_만료를_돌려준다(t *testing.T) {
 	// 60일짜리여야 한다.
 	if d := time.Until(expiry); d < 59*24*time.Hour || d > 61*24*time.Hour {
 		t.Fatalf("만료까지 %v, 60일 근처여야 한다", d)
+	}
+}
+
+func TestPublish_컨테이너가_준비될_때까지_기다린다(t *testing.T) {
+	// 만든 직후에는 IN_PROGRESS다. 이때 발행하면 실패한다.
+	orig := containerPollInterval
+	containerPollInterval = time.Millisecond
+	defer func() { containerPollInterval = orig }()
+
+	th, calls := fakeThreads(t, fakeOpts{
+		containerStatuses: []string{"IN_PROGRESS", "IN_PROGRESS", "FINISHED"},
+	})
+
+	if _, err := th.Publish(context.Background(), "tok", "본문", "https://link"); err != nil {
+		t.Fatalf("기다린 뒤 성공했어야 한다: %v", err)
+	}
+
+	// 본문과 답글 각각 컨테이너를 만들고 발행하므로 발행 호출은 2회다.
+	publishes := 0
+	for _, c := range *calls {
+		if c.Path == "/me/threads_publish" {
+			publishes++
+		}
+	}
+	if publishes != 2 {
+		t.Fatalf("발행 호출 %d회, 2회여야 한다", publishes)
+	}
+}
+
+func TestPublish_컨테이너가_ERROR면_사유를_알린다(t *testing.T) {
+	orig := containerPollInterval
+	containerPollInterval = time.Millisecond
+	defer func() { containerPollInterval = orig }()
+
+	th, _ := fakeThreads(t, fakeOpts{
+		containerStatuses: []string{"ERROR"},
+		containerError:    "text too long",
+	})
+
+	_, err := th.Publish(context.Background(), "tok", "본문", "https://link")
+	if err == nil {
+		t.Fatal("에러여야 한다")
+	}
+	if !strings.Contains(err.Error(), "text too long") {
+		t.Fatalf("사유가 담기지 않았다: %v", err)
+	}
+}
+
+func TestPublish_준비되지_않으면_시간초과로_멈춘다(t *testing.T) {
+	origI, origT := containerPollInterval, containerPollTimeout
+	containerPollInterval, containerPollTimeout = time.Millisecond, 5*time.Millisecond
+	defer func() { containerPollInterval, containerPollTimeout = origI, origT }()
+
+	th, _ := fakeThreads(t, fakeOpts{containerStatuses: []string{"IN_PROGRESS"}})
+
+	if _, err := th.Publish(context.Background(), "tok", "본문", "https://link"); err == nil {
+		t.Fatal("시간 초과로 에러여야 한다")
 	}
 }
