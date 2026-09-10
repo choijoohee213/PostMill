@@ -466,3 +466,27 @@ main {
 }
 
 .card-links a { color: var(--muted); }
+
+.btn-block { width: 100%; }
+
+.fallback {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+}
+
+.fallback summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.callback-url {
+  margin: 6px 0 10px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: var(--bg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}

@@ -90,6 +90,8 @@ func main() {
 	mux.HandleFunc("GET /history", a.handleHistory)
 	mux.HandleFunc("GET /connect", a.handleConnectForm)
 	mux.HandleFunc("POST /connect", a.handleConnect)
+	mux.HandleFunc("POST /connect/start", a.handleConnectStart)
+	mux.HandleFunc("GET /connect/callback", a.handleConnectCallback)
 	mux.HandleFunc("POST /disconnect", a.handleDisconnect)
 
 	port := os.Getenv("PORT")

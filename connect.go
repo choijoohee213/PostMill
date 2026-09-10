@@ -30,11 +30,12 @@ func (a *app) saveToken(ctx context.Context, token string, expiresAt time.Time) 
 }
 
 type connectData struct {
-	Connected bool
-	ExpiresAt string
-	AppID     string
-	Error     string
-	Done      bool
+	Connected   bool
+	ExpiresAt   string
+	AppID       string
+	Error       string
+	Done        bool
+	CallbackURL string // 대시보드에 등록해야 하는 리디렉션 URI
 }
 
 func (a *app) handleConnectForm(w http.ResponseWriter, r *http.Request) {
@@ -42,7 +43,12 @@ func (a *app) handleConnectForm(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) renderConnect(w http.ResponseWriter, r *http.Request, errMsg string, done bool) {
-	data := connectData{AppID: a.appID, Error: errMsg, Done: done}
+	data := connectData{
+		AppID:       a.appID,
+		Error:       errMsg,
+		Done:        done,
+		CallbackURL: publicBase(r) + callbackPath,
+	}
 
 	if _, ok := a.currentToken(r.Context()); ok {
 		data.Connected = true

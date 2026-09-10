@@ -250,3 +250,66 @@ func (t *Threads) exchangeAt(ctx context.Context, base, appSecret, shortToken st
 	}
 	return out.AccessToken, time.Now().Add(time.Duration(out.ExpiresIn) * time.Second), nil
 }
+
+// threadsAuthorizeURL은 사용자가 권한을 승인하는 화면이다.
+const threadsAuthorizeURL = "https://threads.net/oauth/authorize"
+
+// threadsScopes는 이 앱이 필요한 권한이다.
+// 답글로 링크를 올리므로 threads_manage_replies가 필요하다.
+const threadsScopes = "threads_basic,threads_content_publish,threads_manage_replies"
+
+// AuthorizeURL은 사용자를 보낼 승인 화면 주소를 만든다.
+func AuthorizeURL(appID, redirectURI, state string) string {
+	q := url.Values{}
+	q.Set("client_id", appID)
+	q.Set("redirect_uri", redirectURI)
+	q.Set("scope", threadsScopes)
+	q.Set("response_type", "code")
+	q.Set("state", state)
+	return threadsAuthorizeURL + "?" + q.Encode()
+}
+
+// CodeToToken은 콜백으로 받은 code를 1시간짜리 단기 토큰으로 바꾼다.
+func (t *Threads) CodeToToken(ctx context.Context, appID, appSecret, redirectURI, code string) (string, error) {
+	return t.codeToTokenAt(ctx, threadsTokenAPI, appID, appSecret, redirectURI, code)
+}
+
+func (t *Threads) codeToTokenAt(ctx context.Context, base, appID, appSecret, redirectURI, code string) (string, error) {
+	form := url.Values{}
+	form.Set("client_id", appID)
+	form.Set("client_secret", appSecret)
+	form.Set("code", code)
+	form.Set("grant_type", "authorization_code")
+	form.Set("redirect_uri", redirectURI)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		base+"oauth/access_token", strings.NewReader(form.Encode()))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := t.HTTP.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode != http.StatusOK {
+		var e threadsError
+		json.Unmarshal(raw, &e)
+		if e.Error.Message != "" {
+			return "", fmt.Errorf("%s", e.Error.Message)
+		}
+		return "", fmt.Errorf("코드 교환 실패 (HTTP %d)", resp.StatusCode)
+	}
+
+	var out struct {
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil || out.AccessToken == "" {
+		return "", fmt.Errorf("코드 교환 응답을 해석하지 못했다")
+	}
+	return out.AccessToken, nil
+}
