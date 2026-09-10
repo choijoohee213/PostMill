@@ -28,6 +28,7 @@
         <div class="card-head">
           <span class="badge badge-{{.Affiliate}}">{{affiliateKo .Affiliate}}</span>
           {{if eq .Status "failed"}}<span class="badge badge-failed">발행 실패</span>{{end}}
+          {{if and (eq .Status "published") .ErrorMsg}}<span class="badge badge-failed">답글 실패</span>{{end}}
           <time>{{formatTime .CreatedAt}}</time>
         </div>
         <p class="card-body">{{preview .Body}}</p>

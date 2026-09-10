@@ -1,0 +1,72 @@
+{{template "head" .}}
+
+<a class="back" href="/">← 목록</a>
+
+{{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+
+<section class="preview" aria-label="발행 미리보기">
+  <h2 class="preview-title">이렇게 발행됩니다</h2>
+
+  <article class="thread-post">
+    <p class="disclosure">{{.Disclosure}}</p>
+    <p class="thread-body" id="preview-body">{{.Post.Body}}</p>
+  </article>
+
+  <article class="thread-post thread-reply">
+    <span class="reply-label">답글</span>
+    <p class="thread-body">{{.Reply}}</p>
+  </article>
+  <p class="hint">링크를 답글로 올리면 본문 노출이 덜 깎입니다. 대가성 문구는 규정상 본문 맨 앞에 있어야 합니다.</p>
+</section>
+
+{{if eq .Post.Status "published"}}
+<p class="notice">이미 발행된 글입니다.{{if .Post.ThreadPermalink}} <a href="{{.Post.ThreadPermalink}}" target="_blank" rel="noopener">스레드에서 보기</a>{{end}}</p>
+{{end}}
+
+<form class="form" method="post" action="/drafts/{{.Post.ID}}">
+  <label class="field">
+    <span class="label">본문</span>
+    <textarea name="body" id="body" rows="12" data-room="{{.Room}}">{{.Post.Body}}</textarea>
+    <span class="counter" id="counter" data-room="{{.Room}}">{{.Used}} / {{.Room}}</span>
+  </label>
+
+  <div class="actions">
+    <button class="btn" type="submit">저장</button>
+  </div>
+</form>
+
+{{if ne .Post.Status "published"}}
+<form class="publish-form" method="post" action="/drafts/{{.Post.ID}}/publish" data-publish>
+  <button class="btn btn-primary" type="submit"{{if .Error}} disabled{{end}}>발행</button>
+</form>
+{{end}}
+
+<div class="secondary-actions">
+  <form method="post" action="/drafts/{{.Post.ID}}/regenerate">
+    <button class="btn" type="submit">재생성</button>
+  </form>
+
+  {{if eq .Post.Status "held"}}
+  <form method="post" action="/drafts/{{.Post.ID}}/unhold">
+    <button class="btn" type="submit">검수대기로</button>
+  </form>
+  {{else}}
+  <form method="post" action="/drafts/{{.Post.ID}}/hold">
+    <button class="btn" type="submit">보류</button>
+  </form>
+  {{end}}
+
+  <form method="post" action="/drafts/{{.Post.ID}}/delete"
+        onsubmit="return confirm('이 초안을 삭제할까요? 되돌릴 수 없습니다.')">
+    <button class="btn btn-danger" type="submit">삭제</button>
+  </form>
+</div>
+
+{{if .Post.Memo}}
+<details class="memo">
+  <summary>상품 메모</summary>
+  <p>{{.Post.Memo}}</p>
+</details>
+{{end}}
+
+{{template "foot" .}}

@@ -136,12 +136,20 @@ func (db *DB) DeletePost(ctx context.Context, id int64) error {
 	return err
 }
 
-// ClaimForPublish는 조건부 UPDATE로 발행 권한을 선점한다.
+// publishableStatuses는 발행을 시작할 수 있는 상태다.
+// publishing과 published가 빠져 있는 것이 중복 발행을 막는 핵심이다.
+var publishableStatuses = []string{StatusPending, StatusApproved, StatusFailed, StatusHeld}
+
+// ClaimForPublish는 한 번의 조건부 UPDATE로 발행 권한을 선점한다.
 // 이미 다른 요청이 선점했으면 false를 반환한다 (중복 발행 방지, SPEC 5-2).
+//
+// 상태 전환을 여러 UPDATE로 쪼개면 안 된다. 예를 들어 approved로 바꾼 뒤
+// 선점하면, 두 번째 요청의 approved 전환이 첫 요청의 publishing을 덮어써서
+// 둘 다 통과한다. 반드시 이 한 번의 UPDATE로 끝내야 한다.
 func (db *DB) ClaimForPublish(ctx context.Context, id int64) (bool, error) {
 	tag, err := db.pool.Exec(ctx,
-		`UPDATE posts SET status = $2 WHERE id = $1 AND status = $3`,
-		id, StatusPublishing, StatusApproved)
+		`UPDATE posts SET status = $2 WHERE id = $1 AND status = ANY($3)`,
+		id, StatusPublishing, publishableStatuses)
 	if err != nil {
 		return false, err
 	}
@@ -190,5 +198,12 @@ func (db *DB) SetGenerateError(ctx context.Context, id int64, errMsg string) err
 	_, err := db.pool.Exec(ctx,
 		`UPDATE posts SET error_msg = $2 WHERE id = $1 AND status = $3`,
 		id, errMsg, StatusGenerating)
+	return err
+}
+
+// SetPublishNote는 발행은 됐지만 사용자가 알아야 할 일이 있을 때 남긴다.
+// 상태는 published 그대로 둔다.
+func (db *DB) SetPublishNote(ctx context.Context, id int64, note string) error {
+	_, err := db.pool.Exec(ctx, `UPDATE posts SET error_msg = $2 WHERE id = $1`, id, note)
 	return err
 }
