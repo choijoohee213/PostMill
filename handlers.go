@@ -424,7 +424,9 @@ func (a *app) handlePublish(w http.ResponseWriter, r *http.Request) {
 	res, err := a.threads.Publish(r.Context(), token, text, reply)
 	if err != nil {
 		log.Printf("발행 실패 (id=%d): %v", p.ID, err)
-		if dbErr := a.db.MarkFailed(r.Context(), p.ID, "스레드에 올리지 못했습니다."); dbErr != nil {
+		// 사유를 화면에도 남긴다. 여기서 나오는 메시지는 사용자가
+		// 보고 조치할 수 있는 내용이라 감추면 원인을 알 길이 없다.
+		if dbErr := a.db.MarkFailed(r.Context(), p.ID, "발행 실패: "+err.Error()); dbErr != nil {
 			log.Printf("실패 기록도 실패 (id=%d): %v", p.ID, dbErr)
 		}
 		http.Redirect(w, r, "/", http.StatusSeeOther)

@@ -53,6 +53,10 @@ func TestPublishHandler_중복_발행을_막는다(t *testing.T) {
 			time.Sleep(300 * time.Millisecond)
 			fmt.Fprint(w, `{"id":"post-1"}`)
 		default:
+			if r.URL.Query().Get("fields") == "status,error_message" {
+				fmt.Fprint(w, `{"status":"FINISHED"}`)
+				return
+			}
 			fmt.Fprint(w, `{"permalink":"https://threads.net/p/1"}`)
 		}
 	}))

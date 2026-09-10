@@ -101,10 +101,82 @@ func (t *Threads) publishContainer(ctx context.Context, token, containerID strin
 	return t.post(ctx, "me/threads_publish", form)
 }
 
-// publishText는 컨테이너 생성과 발행을 묶은 2단계 호출이다.
+// 컨테이너는 만든 직후 IN_PROGRESS 상태이고, 준비되면 FINISHED가 된다.
+// 준비되기 전에 발행하면 실패하므로 기다렸다가 발행한다.
+var (
+	containerPollInterval = 2 * time.Second
+	containerPollTimeout  = 60 * time.Second
+)
+
+// waitForContainer는 컨테이너가 발행 가능한 상태가 될 때까지 기다린다.
+func (t *Threads) waitForContainer(ctx context.Context, token, containerID string) error {
+	deadline := time.Now().Add(containerPollTimeout)
+	for {
+		status, errMsg, err := t.containerStatus(ctx, token, containerID)
+		if err != nil {
+			return err
+		}
+		switch status {
+		case "FINISHED":
+			return nil
+		case "ERROR", "EXPIRED":
+			if errMsg != "" {
+				return fmt.Errorf("컨테이너가 %s 상태다: %s", status, errMsg)
+			}
+			return fmt.Errorf("컨테이너가 %s 상태다", status)
+		}
+		// IN_PROGRESS 또는 알 수 없는 상태면 조금 더 기다린다.
+		if time.Now().After(deadline) {
+			return fmt.Errorf("컨테이너가 %s 상태에서 %v 안에 준비되지 않았다", status, containerPollTimeout)
+		}
+		select {
+		case <-time.After(containerPollInterval):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+func (t *Threads) containerStatus(ctx context.Context, token, containerID string) (string, string, error) {
+	u := fmt.Sprintf("%s%s?fields=status,error_message&access_token=%s",
+		t.BaseURL, containerID, url.QueryEscape(token))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return "", "", err
+	}
+	resp, err := t.HTTP.Do(req)
+	if err != nil {
+		return "", "", err
+	}
+	defer resp.Body.Close()
+
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode != http.StatusOK {
+		var e threadsError
+		json.Unmarshal(raw, &e)
+		if e.Error.Message != "" {
+			return "", "", fmt.Errorf("컨테이너 상태 조회 실패: %s", e.Error.Message)
+		}
+		return "", "", fmt.Errorf("컨테이너 상태 조회 실패 (HTTP %d)", resp.StatusCode)
+	}
+
+	var out struct {
+		Status       string `json:"status"`
+		ErrorMessage string `json:"error_message"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return "", "", fmt.Errorf("컨테이너 상태 응답을 해석하지 못했다")
+	}
+	return out.Status, out.ErrorMessage, nil
+}
+
+// publishText는 컨테이너를 만들고, 준비될 때까지 기다린 뒤 발행한다.
 func (t *Threads) publishText(ctx context.Context, token, text, replyTo string) (string, error) {
 	containerID, err := t.createContainer(ctx, token, text, replyTo)
 	if err != nil {
+		return "", err
+	}
+	if err := t.waitForContainer(ctx, token, containerID); err != nil {
 		return "", err
 	}
 	return t.publishContainer(ctx, token, containerID)
