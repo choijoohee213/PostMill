@@ -510,3 +510,210 @@ main {
 
 .hero .hint { text-align: center; }
 .hero .error { text-align: left; }
+
+/* 자동 생성 바 */
+.auto-bar {
+  margin-bottom: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+}
+
+.auto-label {
+  display: block;
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.auto-buttons { display: flex; gap: 8px; }
+.auto-buttons form { flex: 1; display: flex; }
+.auto-buttons .btn { flex: 1; }
+
+/* 아코디언 카드 */
+.card-details summary {
+  padding: 14px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.card-details summary::-webkit-details-marker { display: none; }
+
+.card-product {
+  margin: 0 0 6px;
+  font-weight: 600;
+}
+
+.card-full {
+  padding: 0 14px 4px;
+  border-top: 1px dashed var(--line);
+  margin-top: 4px;
+}
+
+.part-label {
+  margin: 12px 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px 10px;
+  border-top: 1px solid var(--line);
+}
+
+.card-actions .spacer { flex: 1; }
+.card-actions form { display: flex; }
+
+.icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--card);
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.badge-warn { background: #fff4e0; color: #96591a; }
+
+/* 상세 화면의 상품 */
+.product {
+  margin: 14px 0 18px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+}
+
+.product-name {
+  margin: 0 0 10px;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.product .part-label { margin-top: 0; }
+
+.link-form { margin-bottom: 22px; }
+
+.dev-login { margin-top: 22px; }
+.dev-login .btn { width: 100%; }
+
+.need-link {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* 상세 화면의 단계 */
+.step {
+  margin: 22px 0 28px;
+}
+
+.step-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+
+.step-num {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.step .form { margin-top: 14px; }
+.step .actions { margin-top: 10px; }
+
+/* 스레드 미리보기 */
+.thread {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--bg);
+}
+
+.thread .thread-post {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+}
+
+.thread .thread-reply {
+  margin-top: 8px;
+  margin-left: 22px;
+  position: relative;
+}
+
+/* 답글이 이어지는 선 */
+.thread .thread-reply::before {
+  content: "";
+  position: absolute;
+  left: -13px;
+  top: -8px;
+  bottom: 50%;
+  width: 1px;
+  background: var(--line);
+}
+
+.thread-head {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.thread-who {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.thread-head .icon-btn {
+  margin-left: auto;
+  width: 28px;
+  height: 28px;
+  font-size: 13px;
+}
+
+.thread-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.thread-link {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.thread textarea {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--accent);
+  border-radius: 9px;
+  font: inherit;
+  background: var(--card);
+  color: var(--text);
+}
+
+.edit-actions { margin-top: 14px; }

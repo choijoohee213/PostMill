@@ -86,6 +86,8 @@ type listData struct {
 	ActiveTab  string
 	Posts      []*Post
 	Generating bool // 생성 중인 카드가 있을 때만 폴링한다
+	Affiliates []affiliateOption
+	BatchSize  int
 }
 
 func (a *app) handleList(w http.ResponseWriter, r *http.Request) {
@@ -118,6 +120,8 @@ func (a *app) handleList(w http.ResponseWriter, r *http.Request) {
 		ActiveTab:  current.Key,
 		Posts:      posts,
 		Generating: generating,
+		Affiliates: affiliateOptions,
+		BatchSize:  autoBatchSize,
 	})
 }
 

@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -183,74 +184,12 @@ func (g *Gemini) generateOnce(ctx context.Context, affiliate, memo string, room 
 본문에는 장점 하나만 담고 나머지는 디테일로 보내라.`,
 		affiliateKo(affiliate), memo, bodyTargetChars, limit, detailTargetChars)
 
-	payload, err := json.Marshal(geminiRequest{
-		SystemInstruction: geminiContent{Parts: []geminiPart{{Text: draftSystemPrompt}}},
-		Contents:          []geminiContent{{Parts: []geminiPart{{Text: prompt}}}},
-		GenerationConfig: geminiGenConfig{
-			MaxOutputTokens: 2000,
-			ThinkingConfig:  geminiThinkingConf{ThinkingLevel: "minimal"},
-		},
-	})
+	raw, err := g.call(ctx, draftSystemPrompt, prompt)
 	if err != nil {
 		return "", "", err
 	}
 
-	url := g.BaseURL + geminiModel + ":generateContent"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
-	if err != nil {
-		return "", "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-goog-api-key", g.APIKey)
-
-	resp, err := g.HTTP.Do(req)
-	if err != nil {
-		// 연결 실패나 타임아웃은 다시 시도해볼 만하다.
-		return "", "", retryableError{err}
-	}
-	defer resp.Body.Close()
-
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return "", "", err
-	}
-
-	var parsed geminiResponse
-	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return "", "", fmt.Errorf("응답을 해석하지 못했다 (HTTP %d)", resp.StatusCode)
-	}
-	if resp.StatusCode != http.StatusOK {
-		msg := parsed.Error.Message
-		if msg == "" {
-			msg = "본문 없음"
-		}
-		statusErr := fmt.Errorf("HTTP %d: %s", resp.StatusCode, msg)
-		// 429(요청 과다)와 5xx(서버 혼잡)는 잠시 뒤면 풀린다.
-		// 400이나 401 같은 요청 자체의 문제는 다시 보내도 같은 결과다.
-		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
-			return "", "", retryableError{statusErr}
-		}
-		return "", "", statusErr
-	}
-	if parsed.PromptFeedback.BlockReason != "" {
-		return "", "", fmt.Errorf("요청이 차단되었다: %s", parsed.PromptFeedback.BlockReason)
-	}
-	if len(parsed.Candidates) == 0 {
-		return "", "", fmt.Errorf("모델이 후보를 반환하지 않았다")
-	}
-
-	c := parsed.Candidates[0]
-	// STOP이 아니면 잘렸거나 차단된 것이므로 그대로 쓰지 않는다.
-	if c.FinishReason != "" && c.FinishReason != "STOP" {
-		return "", "", fmt.Errorf("생성이 정상 종료되지 않았다: %s", c.FinishReason)
-	}
-
-	var b strings.Builder
-	for _, p := range c.Content.Parts {
-		b.WriteString(p.Text)
-	}
-
-	body, detail := splitDraft(b.String())
+	body, detail := splitDraft(raw)
 	// 아래는 생성이 매번 달라지므로 다시 뽑으면 통과할 수 있다.
 	if body == "" {
 		return "", "", retryableError{fmt.Errorf("모델이 빈 응답을 반환했다")}
@@ -264,6 +203,78 @@ func (g *Gemini) generateOnce(ctx context.Context, affiliate, memo string, room 
 	return body, detail, nil
 }
 
+// call은 시스템 프롬프트와 요청을 보내고 응답 텍스트를 돌려준다.
+// 초안 생성과 자동 제안이 같은 호출부를 쓴다.
+func (g *Gemini) call(ctx context.Context, system, prompt string) (string, error) {
+	payload, err := json.Marshal(geminiRequest{
+		SystemInstruction: geminiContent{Parts: []geminiPart{{Text: system}}},
+		Contents:          []geminiContent{{Parts: []geminiPart{{Text: prompt}}}},
+		GenerationConfig: geminiGenConfig{
+			MaxOutputTokens: 2000,
+			ThinkingConfig:  geminiThinkingConf{ThinkingLevel: "minimal"},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		g.BaseURL+geminiModel+":generateContent", bytes.NewReader(payload))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-goog-api-key", g.APIKey)
+
+	resp, err := g.HTTP.Do(req)
+	if err != nil {
+		// 연결 실패나 타임아웃은 다시 시도해볼 만하다.
+		return "", retryableError{err}
+	}
+	defer resp.Body.Close()
+
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return "", err
+	}
+
+	var parsed geminiResponse
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return "", fmt.Errorf("응답을 해석하지 못했다 (HTTP %d)", resp.StatusCode)
+	}
+	if resp.StatusCode != http.StatusOK {
+		msg := parsed.Error.Message
+		if msg == "" {
+			msg = "본문 없음"
+		}
+		statusErr := fmt.Errorf("HTTP %d: %s", resp.StatusCode, msg)
+		// 429(요청 과다)와 5xx(서버 혼잡)는 잠시 뒤면 풀린다.
+		// 400이나 401 같은 요청 자체의 문제는 다시 보내도 같은 결과다.
+		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
+			return "", retryableError{statusErr}
+		}
+		return "", statusErr
+	}
+	if parsed.PromptFeedback.BlockReason != "" {
+		return "", fmt.Errorf("요청이 차단되었다: %s", parsed.PromptFeedback.BlockReason)
+	}
+	if len(parsed.Candidates) == 0 {
+		return "", retryableError{fmt.Errorf("모델이 후보를 반환하지 않았다")}
+	}
+
+	c := parsed.Candidates[0]
+	// STOP이 아니면 잘렸거나 차단된 것이므로 그대로 쓰지 않는다.
+	if c.FinishReason != "" && c.FinishReason != "STOP" {
+		return "", fmt.Errorf("생성이 정상 종료되지 않았다: %s", c.FinishReason)
+	}
+
+	var b strings.Builder
+	for _, p := range c.Content.Parts {
+		b.WriteString(p.Text)
+	}
+	return strings.TrimSpace(b.String()), nil
+}
+
 // splitDraft는 모델 출력을 본문과 디테일로 나눈다.
 // 구분자가 없으면 전부 본문으로 본다. 디테일은 없어도 발행할 수 있다.
 func splitDraft(raw string) (body, detail string) {
@@ -275,4 +286,158 @@ func splitDraft(raw string) (body, detail string) {
 		}
 	}
 	return strings.TrimSpace(raw), ""
+}
+
+const autoSystemPrompt = `너는 스레드(Threads)에 제휴 마케팅 글을 올리는 평범한 사람이다.
+상품을 직접 고르고, 그 상품에 대한 글을 쓴다.
+
+먼저 상품을 고른다:
+- 쿠팡이나 온라인에서 쉽게 살 수 있는 생활용품 중에서 고른다.
+- 만원에서 오만원 사이의 흔한 물건이 좋다. 비싸거나 특이한 물건은 피한다.
+- 특정 브랜드나 모델명을 쓰지 마라. "접이식 장바구니 카트", "실리콘 주방장갑"처럼
+  종류로만 적는다. 사용자가 이 이름으로 검색해서 직접 상품을 고를 것이다.
+- 사람들이 "아 이거 나도 불편했는데" 할 만한, 사소한 불편을 해결하는 물건이 좋다.
+
+출력 형식은 세 부분이고 사이에 --- 만 있는 줄을 넣는다.
+
+[1] 상품 이름 한 줄. 검색어로 쓸 수 있게 짧게.
+---
+[2] 본문. 아주 짧게, 3~4줄, 80자 안팎.
+    구성: 겪던 불편 한 줄 → 이걸로 뭐가 달라졌는지 한 줄 → 질문 한 줄.
+    장점은 딱 하나만 담는다.
+---
+[3] 디테일. 답글로 이어 붙일 내용. 3~5줄, 120자 안팎.
+    본문에서 안 쓴 이야기를 푼다. 본문에 쓴 말을 되풀이하지 마라.
+
+말투 (2와 3 모두):
+- 반말. 친구한테 카톡하듯. 직접 써본 1인칭으로 쓴다.
+- 한 줄은 짧게 끊고 줄바꿈을 자주 넣는다.
+- "그리고", "또", "게다가", "무엇보다" 로 항목을 이어붙이지 마라.
+- ㅋㅋ, ㅎㅎ, ㅠㅠ, ;;, ~, ! 를 각 부분에서 한두 번 섞는다.
+  만족스러운 얘기엔 ㅋㅋ ㅎㅎ ! ~, 불편했던 얘기엔 ㅠㅠ ;; 를 쓴다.
+- 광고 문구처럼 들리는 문장, 이모지, 해시태그, 링크를 쓰지 않는다.
+- 대가성 문구를 쓰지 않는다. 시스템이 따로 붙인다.
+- "최저가", "무조건", "인생템", "역대급" 같은 과장 표현 금지.
+
+지어내지 말 것:
+- 가격, 할인율, 브랜드명, 모델명, 성능 수치, 용량, 배터리 시간을 쓰지 마라.
+  상품을 네가 골랐으므로 확인된 수치가 없다. 느낌과 상황으로만 쓴다.
+
+다른 말 없이 세 부분만 출력한다.`
+
+// AutoDraft는 AI가 상품까지 고른 초안이다.
+type AutoDraft struct {
+	ProductName string
+	ProductURL  string
+	Body        string
+	Detail      string
+}
+
+// SuggestDraft는 상품 선정부터 본문까지 한 번에 만든다.
+// avoid에 적힌 상품은 피한다. 같은 걸 계속 제안하지 않게 하기 위해서다.
+func (g *Gemini) SuggestDraft(ctx context.Context, affiliate string, avoid []string, hint string) (*AutoDraft, error) {
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if attempt > 0 {
+			wait := retryBackoff[attempt-1]
+			log.Printf("자동 초안 재시도 %d/%d (%v 후): %v", attempt+1, maxAttempts, wait, lastErr)
+			select {
+			case <-time.After(wait):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+
+		d, err := g.suggestOnce(ctx, affiliate, avoid, hint)
+		if err == nil {
+			return d, nil
+		}
+		lastErr = err
+
+		var retryable retryableError
+		if !errors.As(err, &retryable) {
+			return nil, err
+		}
+	}
+	return nil, fmt.Errorf("%d번 시도했지만 실패했다: %w", maxAttempts, lastErr)
+}
+
+func (g *Gemini) suggestOnce(ctx context.Context, affiliate string, avoid []string, hint string) (*AutoDraft, error) {
+	prompt := "상품을 하나 골라 글을 써라."
+	if hint != "" {
+		prompt += "\n이번에는 " + hint + "으로 고른다."
+	}
+	if len(avoid) > 0 {
+		prompt += "\n\n아래 상품은 이미 다뤘으니 피해라:\n- " + strings.Join(avoid, "\n- ")
+	}
+
+	raw, err := g.call(ctx, autoSystemPrompt, prompt)
+	if err != nil {
+		return nil, err
+	}
+
+	parts := splitParts(raw, 3)
+	if len(parts) < 3 {
+		return nil, retryableError{fmt.Errorf("출력이 세 부분으로 나뉘지 않았다")}
+	}
+
+	d := &AutoDraft{
+		ProductName: firstLine(parts[0]),
+		Body:        parts[1],
+		Detail:      parts[2],
+	}
+	if d.ProductName == "" || d.Body == "" {
+		return nil, retryableError{fmt.Errorf("상품 이름이나 본문이 비었다")}
+	}
+	if n := CharCount(d.Body); n > bodyMaxChars {
+		return nil, retryableError{fmt.Errorf("본문이 %d자로 상한 %d자를 넘는다", n, bodyMaxChars)}
+	}
+	if n := CharCount(d.Detail); n > detailMaxChars {
+		return nil, retryableError{fmt.Errorf("디테일이 %d자로 상한 %d자를 넘는다", n, detailMaxChars)}
+	}
+	d.ProductURL = SearchURL(affiliate, d.ProductName)
+	return d, nil
+}
+
+// SearchURL은 상품을 찾아볼 검색 주소를 만든다.
+//
+// AI에게 상품 페이지 주소를 직접 쓰게 하지 않는다. 없는 상품 번호를
+// 지어내면 404가 되기 때문이다. 검색 주소는 항상 실제 상품으로 이어진다.
+func SearchURL(affiliate, productName string) string {
+	q := url.QueryEscape(strings.TrimSpace(productName))
+	if q == "" {
+		return ""
+	}
+	switch affiliate {
+	case AffiliateCoupang:
+		return "https://www.coupang.com/np/search?q=" + q
+	default:
+		// 토스 쉐어링크는 앱에서만 만들 수 있어 웹 검색 주소가 쓸모가 적다.
+		return ""
+	}
+}
+
+func firstLine(s string) string {
+	for _, line := range strings.Split(s, "\n") {
+		if t := strings.TrimSpace(line); t != "" {
+			return t
+		}
+	}
+	return ""
+}
+
+// splitParts는 --- 만 있는 줄을 기준으로 최대 n조각으로 나눈다.
+func splitParts(raw string, n int) []string {
+	var parts []string
+	var cur []string
+	for _, line := range strings.Split(strings.TrimSpace(raw), "\n") {
+		if strings.TrimSpace(line) == draftSeparator && len(parts) < n-1 {
+			parts = append(parts, strings.TrimSpace(strings.Join(cur, "\n")))
+			cur = nil
+			continue
+		}
+		cur = append(cur, line)
+	}
+	parts = append(parts, strings.TrimSpace(strings.Join(cur, "\n")))
+	return parts
 }
