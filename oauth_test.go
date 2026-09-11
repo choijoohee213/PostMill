@@ -1,12 +1,10 @@
 package main
 
 import (
-	"context"
 	"html/template"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"strings"
 	"testing"
 )
@@ -14,14 +12,8 @@ import (
 // renderConnect가 연결 상태를 읽으므로 실제 DB가 필요하다.
 func oauthApp(t *testing.T) *app {
 	t.Helper()
-	db, err := Open(context.Background(), os.Getenv("DATABASE_URL"))
-	if err != nil {
-		t.Skipf("DATABASE_URL 없음: %v", err)
-	}
-	t.Cleanup(db.Close)
-
 	return &app{
-		db:        db,
+		db:        openTestDB(t),
 		appID:     "test-app-id",
 		appSecret: "test-secret",
 		threads:   NewThreads(),
