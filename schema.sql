@@ -20,3 +20,6 @@ CREATE TABLE IF NOT EXISTS app_state (
     value      text        NOT NULL,
     updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- 본문에 이어 답글로 올릴 디테일. 본문을 짧게 두고 나머지를 여기 담는다.
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS detail text NOT NULL DEFAULT '';

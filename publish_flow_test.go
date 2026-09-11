@@ -61,7 +61,7 @@ func TestPublishHandler_중복_발행을_막는다(t *testing.T) {
 
 	a.db.SetState(ctx, stateAccessToken, "test-token")
 	id, _ := a.db.CreateDraft(ctx, AffiliateCoupang, "", "https://link.example/x", "메모")
-	a.db.SetGenerated(ctx, id, "발행할 본문이다")
+	a.db.SetGenerated(ctx, id, "발행할 본문이다", "")
 	t.Cleanup(func() { a.db.DeletePost(ctx, id) })
 
 	// 버튼을 두 번 누른 상황을 흉내낸다.
@@ -105,7 +105,7 @@ func TestPublishHandler_토큰이_없으면_발행하지_않는다(t *testing.T)
 
 	a.db.pool.Exec(ctx, `DELETE FROM app_state WHERE key = $1`, stateAccessToken)
 	id, _ := a.db.CreateDraft(ctx, AffiliateCoupang, "", "https://link.example/x", "메모")
-	a.db.SetGenerated(ctx, id, "본문")
+	a.db.SetGenerated(ctx, id, "본문", "")
 	t.Cleanup(func() { a.db.DeletePost(ctx, id) })
 
 	rec := httptest.NewRecorder()
@@ -133,7 +133,7 @@ func TestPublishHandler_본문이_비면_발행하지_않는다(t *testing.T) {
 
 	a.db.SetState(ctx, stateAccessToken, "test-token")
 	id, _ := a.db.CreateDraft(ctx, AffiliateCoupang, "", "https://link.example/x", "메모")
-	a.db.SetGenerated(ctx, id, "")
+	a.db.SetGenerated(ctx, id, "", "")
 	t.Cleanup(func() { a.db.DeletePost(ctx, id) })
 
 	rec := httptest.NewRecorder()

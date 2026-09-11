@@ -36,6 +36,7 @@ type Post struct {
 	AffiliateLink   string
 	Memo            string
 	Body            string
+	Detail          string
 	Status          string
 	ErrorMsg        string
 	ThreadPermalink string
@@ -62,13 +63,13 @@ func Open(ctx context.Context, databaseURL string) (*DB, error) {
 
 func (db *DB) Close() { db.pool.Close() }
 
-const postColumns = `id, affiliate, product_url, affiliate_link, memo, body,
+const postColumns = `id, affiliate, product_url, affiliate_link, memo, body, detail,
 	status, error_msg, thread_permalink, created_at, published_at`
 
 func scanPost(row pgx.Row) (*Post, error) {
 	var p Post
 	err := row.Scan(&p.ID, &p.Affiliate, &p.ProductURL, &p.AffiliateLink, &p.Memo,
-		&p.Body, &p.Status, &p.ErrorMsg, &p.ThreadPermalink, &p.CreatedAt, &p.PublishedAt)
+		&p.Body, &p.Detail, &p.Status, &p.ErrorMsg, &p.ThreadPermalink, &p.CreatedAt, &p.PublishedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -112,16 +113,17 @@ func (db *DB) ListByStatus(ctx context.Context, statuses ...string) ([]*Post, er
 }
 
 // SetGenerated는 초안 생성이 끝난 row를 pending으로 전환한다.
-func (db *DB) SetGenerated(ctx context.Context, id int64, body string) error {
+func (db *DB) SetGenerated(ctx context.Context, id int64, body, detail string) error {
 	_, err := db.pool.Exec(ctx,
-		`UPDATE posts SET body = $2, status = $3, error_msg = '' WHERE id = $1`,
-		id, body, StatusPending)
+		`UPDATE posts SET body = $2, detail = $3, status = $4, error_msg = '' WHERE id = $1`,
+		id, body, detail, StatusPending)
 	return err
 }
 
-// UpdateBody는 편집 화면에서 수정한 본문을 저장한다.
-func (db *DB) UpdateBody(ctx context.Context, id int64, body string) error {
-	_, err := db.pool.Exec(ctx, `UPDATE posts SET body = $2 WHERE id = $1`, id, body)
+// UpdateBody는 편집 화면에서 수정한 본문과 디테일을 저장한다.
+func (db *DB) UpdateBody(ctx context.Context, id int64, body, detail string) error {
+	_, err := db.pool.Exec(ctx,
+		`UPDATE posts SET body = $2, detail = $3 WHERE id = $1`, id, body, detail)
 	return err
 }
 

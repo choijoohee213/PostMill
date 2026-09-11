@@ -247,24 +247,27 @@ func (a *app) generate(id int64, affiliate, memo string) {
 		return
 	}
 
-	body, err := a.gemini.GenerateDraft(ctx, affiliate, memo, room)
+	body, detail, err := a.gemini.GenerateDraft(ctx, affiliate, memo, room)
 	if err != nil {
 		fail("초안을 만들지 못했습니다.", err)
 		return
 	}
-	if err := a.db.SetGenerated(ctx, id, body); err != nil {
+	if err := a.db.SetGenerated(ctx, id, body, detail); err != nil {
 		fail("저장하지 못했습니다.", err)
 	}
 }
 
 type editData struct {
-	Post       *Post
-	Disclosure string
-	Preview    string
-	Reply      string
-	Room       int
-	Used       int
-	Error      string
+	Post        *Post
+	Disclosure  string
+	Preview     string
+	Reply       string
+	Room        int
+	BodyTarget  int
+	DetailLimit int
+	Used        int
+	DetailUsed  int
+	Error       string
 }
 
 // draftFor는 편집 가능한 초안을 읽는다. 생성 중이거나 없는 글은 목록으로 돌려보낸다.
@@ -306,13 +309,16 @@ func (a *app) renderEdit(w http.ResponseWriter, p *Post, errMsg string) {
 	}
 
 	a.render(w, "edit.html", editData{
-		Post:       p,
-		Disclosure: disclosure,
-		Preview:    preview,
-		Reply:      reply,
-		Room:       room,
-		Used:       CharCount(strings.TrimSpace(p.Body)),
-		Error:      errMsg,
+		Post:        p,
+		Disclosure:  disclosure,
+		Preview:     preview,
+		Reply:       reply,
+		Room:        room,
+		BodyTarget:  bodyTargetChars,
+		DetailLimit: detailMaxChars,
+		Used:        CharCount(strings.TrimSpace(p.Body)),
+		DetailUsed:  CharCount(strings.TrimSpace(p.Detail)),
+		Error:       errMsg,
 	})
 }
 
@@ -323,13 +329,14 @@ func (a *app) handleDraftSave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	body := strings.TrimSpace(r.FormValue("body"))
+	detail := strings.TrimSpace(r.FormValue("detail"))
 	// 저장 자체는 막지 않는다. 발행 가능한지는 미리보기와 카운터가 알려준다.
-	if err := a.db.UpdateBody(r.Context(), p.ID, body); err != nil {
+	if err := a.db.UpdateBody(r.Context(), p.ID, body, detail); err != nil {
 		log.Printf("본문 저장 실패 (id=%d): %v", p.ID, err)
 		a.renderEdit(w, p, "저장하지 못했습니다.")
 		return
 	}
-	p.Body = body
+	p.Body, p.Detail = body, detail
 
 	http.Redirect(w, r, fmt.Sprintf("/drafts/%d", p.ID), http.StatusSeeOther)
 }
@@ -421,7 +428,7 @@ func (a *app) handlePublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := a.threads.Publish(r.Context(), token, text, reply)
+	res, err := a.threads.Publish(r.Context(), token, text, p.Detail, reply)
 	if err != nil {
 		log.Printf("발행 실패 (id=%d): %v", p.ID, err)
 		// 사유를 화면에도 남긴다. 여기서 나오는 메시지는 사용자가
@@ -440,7 +447,7 @@ func (a *app) handlePublish(w http.ResponseWriter, r *http.Request) {
 	if res.ReplyErr != nil {
 		log.Printf("링크 답글 실패 (id=%d): %v", p.ID, res.ReplyErr)
 		if dbErr := a.db.SetPublishNote(r.Context(), p.ID,
-			"글은 올라갔지만 링크 답글에 실패했습니다. 스레드에서 직접 링크를 답글로 달아주세요."); dbErr != nil {
+			"글은 올라갔지만 답글에 실패했습니다. 스레드에서 직접 달아주세요: "+res.ReplyErr.Error()); dbErr != nil {
 			log.Printf("답글 실패 기록도 실패 (id=%d): %v", p.ID, dbErr)
 		}
 	}

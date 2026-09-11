@@ -22,6 +22,7 @@ func fakeThreads(t *testing.T, opts fakeOpts) (*Threads, *[]capturedCall) {
 	t.Helper()
 	var calls []capturedCall
 	statusCalls := 0
+	publishCount := 0
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.ParseForm()
@@ -48,7 +49,9 @@ func fakeThreads(t *testing.T, opts fakeOpts) (*Threads, *[]capturedCall) {
 			fmt.Fprint(w, `{"id":"container-1"}`)
 
 		case path == "/me/threads_publish":
-			fmt.Fprint(w, `{"id":"post-99"}`)
+			// 발행마다 다른 id를 준다. 같은 id면 사슬이 이어졌는지 구분할 수 없다.
+			publishCount++
+			fmt.Fprintf(w, `{"id":"post-%d"}`, publishCount)
 
 		default:
 			// 컨테이너 상태 조회와 퍼머링크 조회가 같은 경로 모양이다.
@@ -93,11 +96,11 @@ type fakeOpts struct {
 func TestPublish_본문과_답글을_순서대로_올린다(t *testing.T) {
 	th, calls := fakeThreads(t, fakeOpts{})
 
-	res, err := th.Publish(context.Background(), "tok", "본문 텍스트", "https://link")
+	res, err := th.Publish(context.Background(), "tok", "본문 텍스트", "", "https://link")
 	if err != nil {
 		t.Fatalf("실패: %v", err)
 	}
-	if res.PostID != "post-99" {
+	if res.PostID != "post-1" {
 		t.Fatalf("PostID=%q", res.PostID)
 	}
 	if res.Permalink != "https://www.threads.net/@me/post/abc" {
@@ -123,15 +126,15 @@ func TestPublish_본문과_답글을_순서대로_올린다(t *testing.T) {
 		t.Errorf("답글 본문이 이상함: %+v", c[3])
 	}
 	// 답글은 발행된 글 ID를 가리켜야 한다. 컨테이너 ID가 아니다.
-	if c[3].ReplyTo != "post-99" {
-		t.Errorf("답글 대상이 %q, post-99여야 한다", c[3].ReplyTo)
+	if c[3].ReplyTo != "post-1" {
+		t.Errorf("답글 대상이 %q, post-1여야 한다", c[3].ReplyTo)
 	}
 }
 
 func TestPublish_본문이_실패하면_에러다(t *testing.T) {
 	th, calls := fakeThreads(t, fakeOpts{bodyFails: true})
 
-	if _, err := th.Publish(context.Background(), "tok", "본문", "https://link"); err == nil {
+	if _, err := th.Publish(context.Background(), "tok", "본문", "", "https://link"); err == nil {
 		t.Fatal("에러여야 한다")
 	}
 	// 본문이 실패했으면 답글을 시도하면 안 된다.
@@ -147,11 +150,11 @@ func TestPublish_답글만_실패하면_발행은_성공이다(t *testing.T) {
 	// 되돌리면 사용자가 다시 눌러 같은 글이 두 번 올라간다.
 	th, _ := fakeThreads(t, fakeOpts{replyContainerFails: true})
 
-	res, err := th.Publish(context.Background(), "tok", "본문", "https://link")
+	res, err := th.Publish(context.Background(), "tok", "본문", "", "https://link")
 	if err != nil {
 		t.Fatalf("본문은 성공했으므로 에러가 아니어야 한다: %v", err)
 	}
-	if res.PostID != "post-99" {
+	if res.PostID != "post-1" {
 		t.Fatalf("PostID=%q", res.PostID)
 	}
 	if res.ReplyErr == nil {
@@ -162,11 +165,11 @@ func TestPublish_답글만_실패하면_발행은_성공이다(t *testing.T) {
 func TestPublish_퍼머링크_실패는_발행을_막지_않는다(t *testing.T) {
 	th, _ := fakeThreads(t, fakeOpts{permalinkFails: true})
 
-	res, err := th.Publish(context.Background(), "tok", "본문", "https://link")
+	res, err := th.Publish(context.Background(), "tok", "본문", "", "https://link")
 	if err != nil {
 		t.Fatalf("에러가 아니어야 한다: %v", err)
 	}
-	if res.PostID != "post-99" {
+	if res.PostID != "post-1" {
 		t.Fatalf("PostID=%q", res.PostID)
 	}
 	if res.Permalink != "" {
@@ -209,7 +212,7 @@ func TestPublish_컨테이너가_준비될_때까지_기다린다(t *testing.T) 
 		containerStatuses: []string{"IN_PROGRESS", "IN_PROGRESS", "FINISHED"},
 	})
 
-	if _, err := th.Publish(context.Background(), "tok", "본문", "https://link"); err != nil {
+	if _, err := th.Publish(context.Background(), "tok", "본문", "", "https://link"); err != nil {
 		t.Fatalf("기다린 뒤 성공했어야 한다: %v", err)
 	}
 
@@ -235,7 +238,7 @@ func TestPublish_컨테이너가_ERROR면_사유를_알린다(t *testing.T) {
 		containerError:    "text too long",
 	})
 
-	_, err := th.Publish(context.Background(), "tok", "본문", "https://link")
+	_, err := th.Publish(context.Background(), "tok", "본문", "", "https://link")
 	if err == nil {
 		t.Fatal("에러여야 한다")
 	}
@@ -251,7 +254,62 @@ func TestPublish_준비되지_않으면_시간초과로_멈춘다(t *testing.T) 
 
 	th, _ := fakeThreads(t, fakeOpts{containerStatuses: []string{"IN_PROGRESS"}})
 
-	if _, err := th.Publish(context.Background(), "tok", "본문", "https://link"); err == nil {
+	if _, err := th.Publish(context.Background(), "tok", "본문", "", "https://link"); err == nil {
 		t.Fatal("시간 초과로 에러여야 한다")
+	}
+}
+
+func TestPublish_디테일과_링크를_사슬로_잇는다(t *testing.T) {
+	th, calls := fakeThreads(t, fakeOpts{})
+
+	res, err := th.Publish(context.Background(), "tok", "본문", "디테일 내용", "https://link")
+	if err != nil {
+		t.Fatalf("실패: %v", err)
+	}
+	if res.ReplyErr != nil {
+		t.Fatalf("ReplyErr=%v", res.ReplyErr)
+	}
+
+	// 컨테이너 생성 호출만 추려서 순서와 부모를 확인한다.
+	var containers []capturedCall
+	for _, c := range *calls {
+		if c.Path == "/me/threads" {
+			containers = append(containers, c)
+		}
+	}
+	if len(containers) != 3 {
+		t.Fatalf("컨테이너 %d개: %+v", len(containers), containers)
+	}
+	if containers[0].Text != "본문" || containers[0].ReplyTo != "" {
+		t.Errorf("본문: %+v", containers[0])
+	}
+	// 디테일은 본문(post-1)에 달린다.
+	if containers[1].Text != "디테일 내용" || containers[1].ReplyTo != "post-1" {
+		t.Errorf("디테일: %+v", containers[1])
+	}
+	// 링크는 디테일(post-2)에 달려 사슬이 이어진다.
+	if containers[2].Text != "https://link" || containers[2].ReplyTo != "post-2" {
+		t.Errorf("링크: %+v", containers[2])
+	}
+}
+
+func TestPublish_디테일이_없으면_링크를_본문에_단다(t *testing.T) {
+	th, calls := fakeThreads(t, fakeOpts{})
+
+	if _, err := th.Publish(context.Background(), "tok", "본문", "", "https://link"); err != nil {
+		t.Fatalf("실패: %v", err)
+	}
+
+	var containers []capturedCall
+	for _, c := range *calls {
+		if c.Path == "/me/threads" {
+			containers = append(containers, c)
+		}
+	}
+	if len(containers) != 2 {
+		t.Fatalf("컨테이너 %d개여야 한다: %+v", len(containers), containers)
+	}
+	if containers[1].ReplyTo != "post-1" {
+		t.Errorf("링크가 본문에 달리지 않았다: %+v", containers[1])
 	}
 }
