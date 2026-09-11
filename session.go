@@ -3,7 +3,6 @@ package main
 import (
 	"crypto/hmac"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/base64"
 	"net/http"
 	"strconv"
@@ -12,23 +11,22 @@ import (
 )
 
 const sessionCookie = "postmill_session"
-const sessionTTL = 30 * 24 * time.Hour
+const sessionTTL = 365 * 24 * time.Hour
 
 // session은 표준 라이브러리만으로 서명된 쿠키를 다룬다.
-// 저장할 상태가 "로그인했다" 하나뿐이라 서버 측 세션 저장소가 필요 없다.
+// 담는 것은 스레드 사용자 id와 만료 시각뿐이라 서버 측 저장소가 필요 없다.
 type session struct {
 	secret []byte
 }
 
-// issue는 만료 시각을 담아 서명한 쿠키 값을 만든다.
-func (s *session) issue(w http.ResponseWriter, secure bool) {
+// issue는 사용자 id와 만료 시각을 담아 서명한 쿠키를 심는다.
+func (s *session) issue(w http.ResponseWriter, userID string, secure bool) {
 	expiry := time.Now().Add(sessionTTL).Unix()
-	payload := strconv.FormatInt(expiry, 10)
-	value := payload + "." + s.sign(payload)
+	payload := userID + "|" + strconv.FormatInt(expiry, 10)
 
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookie,
-		Value:    value,
+		Value:    payload + "." + s.sign(payload),
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   secure,
@@ -47,25 +45,33 @@ func (s *session) clear(w http.ResponseWriter) {
 	})
 }
 
-// valid는 서명과 만료를 확인한다.
-func (s *session) valid(r *http.Request) bool {
+// userID는 쿠키에서 사용자 id를 꺼낸다. 서명이나 만료가 어긋나면 빈 문자열.
+//
+// 서명을 먼저 검사해야 한다. 먼저 값을 읽고 나중에 검사하면, 검사를
+// 빠뜨린 경로에서 남의 id로 행세할 수 있다.
+func (s *session) userID(r *http.Request) string {
 	c, err := r.Cookie(sessionCookie)
 	if err != nil {
-		return false
+		return ""
 	}
 	payload, sig, found := strings.Cut(c.Value, ".")
 	if !found {
-		return false
+		return ""
 	}
 	// 서명 비교는 반드시 상수 시간으로 한다.
 	if !hmac.Equal([]byte(sig), []byte(s.sign(payload))) {
-		return false
+		return ""
 	}
-	expiry, err := strconv.ParseInt(payload, 10, 64)
-	if err != nil {
-		return false
+
+	userID, rawExpiry, found := strings.Cut(payload, "|")
+	if !found || userID == "" {
+		return ""
 	}
-	return time.Now().Unix() < expiry
+	expiry, err := strconv.ParseInt(rawExpiry, 10, 64)
+	if err != nil || time.Now().Unix() >= expiry {
+		return ""
+	}
+	return userID
 }
 
 func (s *session) sign(payload string) string {
@@ -74,28 +80,14 @@ func (s *session) sign(payload string) string {
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
-// checkPassword는 타이밍 공격을 피하려고 상수 시간으로 비교한다.
-func checkPassword(given, want string) bool {
-	return subtle.ConstantTimeCompare([]byte(given), []byte(want)) == 1
-}
-
 func (a *app) handleLoginForm(w http.ResponseWriter, r *http.Request) {
-	if a.session.valid(r) {
+	if a.session.userID(r) != "" {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
-	a.render(w, "login.html", map[string]string{})
-}
-
-func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
-	if !checkPassword(r.FormValue("password"), a.password) {
-		w.WriteHeader(http.StatusUnauthorized)
-		a.render(w, "login.html", map[string]string{"Error": "비밀번호가 맞지 않습니다."})
-		return
-	}
-	// 배포 환경(HTTPS)에서만 Secure를 켠다. 로컬 http에서는 쿠키가 저장되지 않는다.
-	a.session.issue(w, r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https")
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	a.render(w, "login.html", map[string]string{
+		"Error": r.URL.Query().Get("error"),
+	})
 }
 
 func (a *app) handleLogout(w http.ResponseWriter, r *http.Request) {
@@ -104,10 +96,10 @@ func (a *app) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 // requireAuth는 로그인하지 않은 요청을 로그인 화면으로 보낸다.
-// 이 앱은 사용자의 스레드 계정으로 글을 쓸 수 있으므로 인증은 필수다.
+// 이 앱은 사용자의 스레드 계정으로 글을 쓰므로 인증은 필수다.
 func (a *app) requireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if isPublicPath(r.URL.Path) || a.session.valid(r) {
+		if isPublicPath(r.URL.Path) || a.session.userID(r) != "" {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -116,5 +108,8 @@ func (a *app) requireAuth(next http.Handler) http.Handler {
 }
 
 func isPublicPath(path string) bool {
-	return path == "/login" || strings.HasPrefix(path, "/static/")
+	return path == "/login" ||
+		path == "/login/start" ||
+		path == callbackPath ||
+		strings.HasPrefix(path, "/static/")
 }

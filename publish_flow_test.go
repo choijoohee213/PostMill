@@ -24,7 +24,8 @@ func newTestApp(t *testing.T, threadsSrv *httptest.Server) *app {
 	// 편집 화면 렌더링만 필요하므로 최소 템플릿으로 대체한다.
 	tpl := template.Must(template.New("edit.html").Parse(`{{.Error}}`))
 
-	return &app{db: db, tpl: nil, threads: th, testTpl: tpl}
+	return &app{db: db, tpl: nil, threads: th, testTpl: tpl,
+		session: &session{secret: []byte("test-secret")}}
 }
 
 func TestPublishHandler_중복_발행을_막는다(t *testing.T) {
@@ -59,10 +60,16 @@ func TestPublishHandler_중복_발행을_막는다(t *testing.T) {
 	a := newTestApp(t, srv)
 	ctx := context.Background()
 
-	a.db.SetState(ctx, stateAccessToken, "test-token")
-	id, _ := a.db.CreateDraft(ctx, AffiliateCoupang, "", "https://link.example/x", "메모")
+	const testUser = "publish-test-user"
+	a.db.SaveThreadsUser(ctx, ThreadsUser{
+		UserID: testUser, Username: "tester",
+		AccessToken: "test-token", ExpiresAt: nowPlusDays(60),
+	})
+	t.Cleanup(func() { a.db.DeleteThreadsUser(ctx, testUser) })
+
+	id, _ := a.db.CreateDraft(ctx, testUser, AffiliateCoupang, "", "https://link.example/x", "메모")
 	a.db.SetGenerated(ctx, id, "발행할 본문이다", "")
-	t.Cleanup(func() { a.db.DeletePost(ctx, id) })
+	t.Cleanup(func() { a.db.DeletePost(ctx, testUser, id) })
 
 	// 버튼을 두 번 누른 상황을 흉내낸다.
 	var wg sync.WaitGroup
@@ -70,8 +77,7 @@ func TestPublishHandler_중복_발행을_막는다(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/drafts/%d/publish", id), nil)
-			req.SetPathValue("id", fmt.Sprint(id))
+			req := a.signedRequest(t, testUser, fmt.Sprintf("/drafts/%d/publish", id), id)
 			a.handlePublish(httptest.NewRecorder(), req)
 		}()
 		time.Sleep(50 * time.Millisecond)
@@ -85,7 +91,7 @@ func TestPublishHandler_중복_발행을_막는다(t *testing.T) {
 		t.Fatalf("본문 발행이 %d회 일어났다. 1회여야 한다", n)
 	}
 
-	p, _ := a.db.GetPost(ctx, id)
+	p, _ := a.db.GetPost(ctx, testUser, id)
 	if p.Status != StatusPublished {
 		t.Fatalf("상태=%s, published여야 한다", p.Status)
 	}
@@ -103,20 +109,19 @@ func TestPublishHandler_토큰이_없으면_발행하지_않는다(t *testing.T)
 	a := newTestApp(t, srv)
 	ctx := context.Background()
 
-	a.db.pool.Exec(ctx, `DELETE FROM app_state WHERE key = $1`, stateAccessToken)
-	id, _ := a.db.CreateDraft(ctx, AffiliateCoupang, "", "https://link.example/x", "메모")
+	const testUser = "publish-test-notoken"
+	a.db.DeleteThreadsUser(ctx, testUser)
+	id, _ := a.db.CreateDraft(ctx, testUser, AffiliateCoupang, "", "https://link.example/x", "메모")
 	a.db.SetGenerated(ctx, id, "본문", "")
-	t.Cleanup(func() { a.db.DeletePost(ctx, id) })
+	t.Cleanup(func() { a.db.DeletePost(ctx, testUser, id) })
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/publish", nil)
-	req.SetPathValue("id", fmt.Sprint(id))
-	a.handlePublish(rec, req)
+	a.handlePublish(rec, a.signedRequest(t, testUser, "/publish", id))
 
-	if !strings.Contains(rec.Body.String(), "연결되지 않았습니다") {
+	if !strings.Contains(rec.Body.String(), "다시 로그인") {
 		t.Fatalf("안내 문구가 없다: %q", rec.Body.String())
 	}
-	p, _ := a.db.GetPost(ctx, id)
+	p, _ := a.db.GetPost(ctx, testUser, id)
 	if p.Status != StatusPending {
 		t.Fatalf("상태=%s, pending 그대로여야 한다", p.Status)
 	}
@@ -131,17 +136,36 @@ func TestPublishHandler_본문이_비면_발행하지_않는다(t *testing.T) {
 	a := newTestApp(t, srv)
 	ctx := context.Background()
 
-	a.db.SetState(ctx, stateAccessToken, "test-token")
-	id, _ := a.db.CreateDraft(ctx, AffiliateCoupang, "", "https://link.example/x", "메모")
+	const testUser = "publish-test-user"
+	a.db.SaveThreadsUser(ctx, ThreadsUser{
+		UserID: testUser, Username: "tester",
+		AccessToken: "test-token", ExpiresAt: nowPlusDays(60),
+	})
+	t.Cleanup(func() { a.db.DeleteThreadsUser(ctx, testUser) })
+
+	id, _ := a.db.CreateDraft(ctx, testUser, AffiliateCoupang, "", "https://link.example/x", "메모")
 	a.db.SetGenerated(ctx, id, "", "")
-	t.Cleanup(func() { a.db.DeletePost(ctx, id) })
+	t.Cleanup(func() { a.db.DeletePost(ctx, testUser, id) })
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/publish", nil)
-	req.SetPathValue("id", fmt.Sprint(id))
-	a.handlePublish(rec, req)
+	a.handlePublish(rec, a.signedRequest(t, testUser, "/publish", id))
 
 	if !strings.Contains(rec.Body.String(), "발행할 수 없습니다") {
 		t.Fatalf("가드가 동작하지 않았다: %q", rec.Body.String())
 	}
+}
+
+// signedRequest는 그 사용자로 로그인한 상태의 요청을 만든다.
+// 핸들러가 세션에서 사용자를 읽으므로 쿠키가 없으면 404가 된다.
+func (a *app) signedRequest(t *testing.T, userID, path string, id int64) *http.Request {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	a.session.issue(rec, userID, false)
+
+	req := httptest.NewRequest(http.MethodPost, path, nil)
+	for _, c := range rec.Result().Cookies() {
+		req.AddCookie(c)
+	}
+	req.SetPathValue("id", fmt.Sprint(id))
+	return req
 }

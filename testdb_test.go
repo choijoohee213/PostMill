@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"testing"
+	"time"
 )
 
 // openTestDB는 테스트 전용 DB를 연다.
@@ -31,3 +32,5 @@ func openTestDB(t *testing.T) *DB {
 	t.Cleanup(db.Close)
 	return db
 }
+
+func nowPlusDays(n int) time.Time { return time.Now().Add(time.Duration(n) * 24 * time.Hour) }

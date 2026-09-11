@@ -4,105 +4,77 @@ import (
 	"context"
 	"log"
 	"net/http"
-	"strings"
 	"time"
 )
 
-// currentToken은 발행에 쓸 Threads 토큰을 돌려준다.
-//
-// 지금은 앱 전체가 계정 하나를 쓰므로 app_state에서 읽는다. 나중에 사용자가
-// 늘어나면 이 함수 안에서 "로그인한 사용자의 토큰"을 읽도록 바꾸면 되고,
-// 발행 코드는 손대지 않아도 된다. 토큰을 읽는 곳을 여기 하나로 모아둔 이유다.
-func (a *app) currentToken(ctx context.Context) (string, bool) {
-	token, ok, err := a.db.GetState(ctx, stateAccessToken)
+// currentUser는 지금 요청을 보낸 사용자의 스레드 계정과 토큰이다.
+// 발행에 쓸 토큰을 읽는 곳은 여기 하나뿐이다.
+func (a *app) currentUser(r *http.Request) (*ThreadsUser, bool) {
+	userID := a.session.userID(r)
+	if userID == "" {
+		return nil, false
+	}
+	u, ok, err := a.db.GetThreadsUser(r.Context(), userID)
 	if err != nil {
-		log.Printf("토큰 조회 실패: %v", err)
-		return "", false
+		log.Printf("사용자 조회 실패 (%s): %v", userID, err)
+		return nil, false
 	}
-	return token, ok && token != ""
+	return u, ok
 }
 
-func (a *app) saveToken(ctx context.Context, token string, expiresAt time.Time) error {
-	if err := a.db.SetState(ctx, stateAccessToken, token); err != nil {
-		return err
+type settingsData struct {
+	Username  string
+	ExpiresAt string
+	Error     string
+}
+
+func (a *app) handleSettings(w http.ResponseWriter, r *http.Request) {
+	data := settingsData{Error: r.URL.Query().Get("error")}
+	if u, ok := a.currentUser(r); ok {
+		data.Username = u.Username
+		data.ExpiresAt = u.ExpiresAt.Local().Format("2006년 1월 2일")
 	}
-	return a.db.SetState(ctx, stateExpiresAt, expiresAt.Format(time.RFC3339))
+	a.render(w, "settings.html", data)
 }
 
-type connectData struct {
-	Connected   bool
-	ExpiresAt   string
-	AppID       string
-	Error       string
-	Done        bool
-	CallbackURL string // 대시보드에 등록해야 하는 리디렉션 URI
-}
-
-func (a *app) handleConnectForm(w http.ResponseWriter, r *http.Request) {
-	a.renderConnect(w, r, "", r.URL.Query().Has("done"))
-}
-
-func (a *app) renderConnect(w http.ResponseWriter, r *http.Request, errMsg string, done bool) {
-	data := connectData{
-		AppID:       a.appID,
-		Error:       errMsg,
-		Done:        done,
-		CallbackURL: publicBase(r) + callbackPath,
-	}
-
-	if _, ok := a.currentToken(r.Context()); ok {
-		data.Connected = true
-		if raw, found, _ := a.db.GetState(r.Context(), stateExpiresAt); found {
-			if t, err := time.Parse(time.RFC3339, raw); err == nil {
-				data.ExpiresAt = t.Local().Format("2006년 1월 2일")
-			}
+// handleDisconnect는 저장된 토큰을 지우고 로그아웃한다.
+// 토큰이 없으면 로그인 상태를 유지할 이유도 없다.
+func (a *app) handleDisconnect(w http.ResponseWriter, r *http.Request) {
+	if userID := a.session.userID(r); userID != "" {
+		if err := a.db.DeleteThreadsUser(r.Context(), userID); err != nil {
+			log.Printf("연결 해제 실패 (%s): %v", userID, err)
 		}
 	}
-	a.render(w, "connect.html", data)
-}
-
-// handleConnect는 대시보드에서 받은 단기 토큰을 장기 토큰으로 바꿔 저장한다.
-func (a *app) handleConnect(w http.ResponseWriter, r *http.Request) {
-	short := strings.TrimSpace(r.FormValue("token"))
-	if short == "" {
-		a.renderConnect(w, r, "토큰을 붙여넣어 주세요.", false)
-		return
-	}
-	if a.appSecret == "" {
-		a.renderConnect(w, r, "THREADS_APP_SECRET이 설정되지 않았습니다.", false)
-		return
-	}
-
-	long, expiresAt, err := a.threads.ExchangeToken(r.Context(), a.appSecret, short)
-	if err != nil {
-		log.Printf("토큰 교환 실패: %v", err)
-		a.renderConnect(w, r, "토큰을 교환하지 못했습니다: "+err.Error(), false)
-		return
-	}
-
-	if err := a.saveToken(r.Context(), long, expiresAt); err != nil {
-		log.Printf("토큰 저장 실패: %v", err)
-		a.renderConnect(w, r, "토큰을 저장하지 못했습니다.", false)
-		return
-	}
-	log.Printf("Threads 계정을 연결했다. 만료: %s", expiresAt.Format(time.RFC3339))
-
-	http.Redirect(w, r, "/connect?done=1", http.StatusSeeOther)
-}
-
-func (a *app) handleDisconnect(w http.ResponseWriter, r *http.Request) {
-	if err := a.db.SetState(r.Context(), stateAccessToken, ""); err != nil {
-		log.Printf("연결 해제 실패: %v", err)
-	}
-	http.Redirect(w, r, "/connect", http.StatusSeeOther)
+	a.session.clear(w)
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
 
 func (a *app) handleHistory(w http.ResponseWriter, r *http.Request) {
-	posts, err := a.db.ListPublished(r.Context())
+	posts, err := a.db.ListPublished(r.Context(), a.session.userID(r))
 	if err != nil {
 		log.Printf("이력 조회 실패: %v", err)
 		http.Error(w, "이력을 불러오지 못했습니다", http.StatusInternalServerError)
 		return
 	}
 	a.render(w, "history.html", posts)
+}
+
+// refreshTokenIfNeeded는 만료가 임박한 토큰을 그 자리에서 갱신한다.
+// 크론이 없으므로 요청 앞단에서 처리한다 (SPEC 5-3).
+func (a *app) refreshTokenIfNeeded(ctx context.Context, u *ThreadsUser) {
+	if time.Until(u.ExpiresAt) > refreshWindow {
+		return
+	}
+
+	newToken, newExpiry, err := a.threads.RefreshToken(ctx, u.AccessToken)
+	if err != nil {
+		log.Printf("토큰 갱신 실패 (%s): %v", u.UserID, err)
+		return
+	}
+	u.AccessToken, u.ExpiresAt = newToken, newExpiry
+	if err := a.db.SaveThreadsUser(ctx, *u); err != nil {
+		log.Printf("갱신된 토큰 저장 실패 (%s): %v", u.UserID, err)
+		return
+	}
+	log.Printf("토큰을 갱신했다 (%s). 새 만료: %s", u.UserID, newExpiry.Format(time.RFC3339))
 }

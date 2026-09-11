@@ -404,3 +404,39 @@ func (t *Threads) codeToTokenAt(ctx context.Context, base, appID, appSecret, red
 	}
 	return out.AccessToken, nil
 }
+
+// ThreadsMe는 토큰이 가리키는 계정이다.
+type ThreadsMe struct {
+	ID       string `json:"id"`
+	Username string `json:"username"`
+}
+
+// Me는 토큰의 주인이 누구인지 확인한다.
+func (t *Threads) Me(ctx context.Context, token string) (*ThreadsMe, error) {
+	u := fmt.Sprintf("%sme?fields=id,username&access_token=%s", t.BaseURL, url.QueryEscape(token))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := t.HTTP.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode != http.StatusOK {
+		var e threadsError
+		json.Unmarshal(raw, &e)
+		if e.Error.Message != "" {
+			return nil, fmt.Errorf("%s", e.Error.Message)
+		}
+		return nil, fmt.Errorf("계정 조회 실패 (HTTP %d)", resp.StatusCode)
+	}
+
+	var me ThreadsMe
+	if err := json.Unmarshal(raw, &me); err != nil || me.ID == "" {
+		return nil, fmt.Errorf("계정 응답을 해석하지 못했다")
+	}
+	return &me, nil
+}

@@ -23,13 +23,16 @@
 ```
 DATABASE_URL
 SESSION_SECRET
-APP_PASSWORD
 GEMINI_API_KEY
 THREADS_APP_ID
 THREADS_APP_SECRET
 ```
 
-Threads 액세스 토큰은 갱신되므로 환경변수가 아니라 `app_state` 테이블에 저장한다.
+로그인은 스레드 계정으로 한다. 별도 비밀번호가 없다. 액세스 토큰은 갱신되므로
+환경변수가 아니라 `threads_users` 테이블에 사용자별로 저장한다.
+
+쓸 수 있는 사람은 Meta 앱에 `Threads 테스터`로 초대해 수락한 계정뿐이다.
+즉 Meta의 테스터 목록이 그대로 접근 권한 목록이 된다.
 
 ## 로컬 실행
 
@@ -51,8 +54,11 @@ DB를 여러 번 오가므로, 서버-DB 거리가 사용자-서버 거리보다
 무료 플랜은 비활성 시 서비스가 잠들어 첫 접속에 30초~1분이 걸린다. 하루 3~4회
 접속하는 도구라 감수한다.
 
-배포 후 `/connect`에서 Threads 계정을 연결한다. Meta 대시보드의 사용자 토큰
-생성기에서 받은 1시간짜리 토큰을 붙여넣으면 60일짜리로 교환해 저장한다.
+Meta 대시보드에 리디렉션 콜백 URL을 등록해야 한다.
+
+```
+https://<배포 주소>/login/callback
+```
 
 ## 테스트
 
