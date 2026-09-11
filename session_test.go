@@ -30,73 +30,89 @@ func requestWith(c *http.Cookie) *http.Request {
 	return r
 }
 
-func TestSession_발급한_쿠키는_유효하다(t *testing.T) {
+func TestSession_발급한_쿠키에서_사용자를_읽는다(t *testing.T) {
 	s := testSession()
 	rec := httptest.NewRecorder()
-	s.issue(rec, false)
+	s.issue(rec, "user-42", false)
 
-	if !s.valid(requestWith(cookieFrom(t, rec))) {
-		t.Fatal("방금 발급한 쿠키가 무효하다")
+	if got := s.userID(requestWith(cookieFrom(t, rec))); got != "user-42" {
+		t.Fatalf("userID=%q", got)
 	}
 }
 
-func TestSession_쿠키가_없으면_무효(t *testing.T) {
-	if testSession().valid(requestWith(nil)) {
-		t.Fatal("쿠키가 없는데 유효하다고 한다")
+func TestSession_쿠키가_없으면_빈_사용자(t *testing.T) {
+	if got := testSession().userID(requestWith(nil)); got != "" {
+		t.Fatalf("userID=%q", got)
 	}
 }
 
-func TestSession_서명이_다르면_무효(t *testing.T) {
+func TestSession_서명이_다르면_거부한다(t *testing.T) {
 	// 다른 비밀키로 만든 쿠키는 통과하면 안 된다.
 	other := &session{secret: []byte("attacker-key")}
 	rec := httptest.NewRecorder()
-	other.issue(rec, false)
+	other.issue(rec, "user-42", false)
 
-	if testSession().valid(requestWith(cookieFrom(t, rec))) {
-		t.Fatal("다른 키로 서명한 쿠키가 통과했다")
+	if got := testSession().userID(requestWith(cookieFrom(t, rec))); got != "" {
+		t.Fatalf("다른 키로 서명한 쿠키가 통과했다: %q", got)
 	}
 }
 
-func TestSession_만료를_늘려도_서명이_깨진다(t *testing.T) {
-	// 공격자가 만료 시각만 바꿔치기하는 경우.
+// 공격자가 쿠키의 사용자 id만 남의 것으로 바꾸는 경우.
+// 이게 통과하면 남의 계정으로 글을 쓸 수 있다.
+func TestSession_사용자를_바꿔치기하면_거부한다(t *testing.T) {
 	s := testSession()
 	rec := httptest.NewRecorder()
-	s.issue(rec, false)
+	s.issue(rec, "user-me", false)
 	c := cookieFrom(t, rec)
 
-	_, sig, _ := strings.Cut(c.Value, ".")
-	forged := strconv.FormatInt(time.Now().Add(100*365*24*time.Hour).Unix(), 10) + "." + sig
-	c.Value = forged
+	payload, sig, _ := strings.Cut(c.Value, ".")
+	_, expiry, _ := strings.Cut(payload, "|")
+	c.Value = "user-victim|" + expiry + "." + sig
 
-	if s.valid(requestWith(c)) {
-		t.Fatal("만료 시각을 조작한 쿠키가 통과했다")
+	if got := s.userID(requestWith(c)); got != "" {
+		t.Fatalf("바꿔치기한 사용자가 통과했다: %q", got)
 	}
 }
 
-func TestSession_만료된_쿠키는_무효(t *testing.T) {
+func TestSession_만료를_늘려도_거부한다(t *testing.T) {
 	s := testSession()
-	payload := strconv.FormatInt(time.Now().Add(-time.Hour).Unix(), 10)
+	rec := httptest.NewRecorder()
+	s.issue(rec, "user-42", false)
+	c := cookieFrom(t, rec)
+
+	payload, sig, _ := strings.Cut(c.Value, ".")
+	userID, _, _ := strings.Cut(payload, "|")
+	forged := userID + "|" + strconv.FormatInt(time.Now().Add(100*365*24*time.Hour).Unix(), 10)
+	c.Value = forged + "." + sig
+
+	if got := s.userID(requestWith(c)); got != "" {
+		t.Fatalf("만료를 조작한 쿠키가 통과했다: %q", got)
+	}
+}
+
+func TestSession_만료된_쿠키는_거부한다(t *testing.T) {
+	s := testSession()
+	payload := "user-42|" + strconv.FormatInt(time.Now().Add(-time.Hour).Unix(), 10)
 	c := &http.Cookie{Name: sessionCookie, Value: payload + "." + s.sign(payload)}
 
-	if s.valid(requestWith(c)) {
-		t.Fatal("만료된 쿠키가 통과했다")
+	if got := s.userID(requestWith(c)); got != "" {
+		t.Fatalf("만료된 쿠키가 통과했다: %q", got)
 	}
 }
 
-func TestSession_형식이_깨진_쿠키는_무효(t *testing.T) {
+func TestSession_형식이_깨진_쿠키는_거부한다(t *testing.T) {
 	s := testSession()
-	for _, v := range []string{"", "abc", "abc.def", ".", "9999999999"} {
+	for _, v := range []string{"", "abc", "abc.def", ".", "9999999999", "|123.sig", "u|abc.sig"} {
 		c := &http.Cookie{Name: sessionCookie, Value: v}
-		if s.valid(requestWith(c)) {
-			t.Errorf("%q 가 통과했다", v)
+		if got := s.userID(requestWith(c)); got != "" {
+			t.Errorf("%q 가 통과했다 (userID=%q)", v, got)
 		}
 	}
 }
 
 func TestSession_쿠키는_HttpOnly다(t *testing.T) {
-	// 자바스크립트로 세션을 훔칠 수 없어야 한다.
 	rec := httptest.NewRecorder()
-	testSession().issue(rec, false)
+	testSession().issue(rec, "user-42", false)
 	if c := cookieFrom(t, rec); !c.HttpOnly {
 		t.Fatal("HttpOnly가 아니다")
 	}
@@ -108,7 +124,7 @@ func TestRequireAuth_로그인_전에는_로그인_화면으로(t *testing.T) {
 		t.Errorf("보호된 핸들러가 실행됐다: %s", r.URL.Path)
 	}))
 
-	for _, path := range []string{"/", "/new", "/drafts/1", "/connect", "/history"} {
+	for _, path := range []string{"/", "/new", "/drafts/1", "/settings", "/history"} {
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 		if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/login" {
@@ -117,26 +133,16 @@ func TestRequireAuth_로그인_전에는_로그인_화면으로(t *testing.T) {
 	}
 }
 
-func TestRequireAuth_로그인_화면과_정적파일은_열려있다(t *testing.T) {
+func TestRequireAuth_로그인_경로와_정적파일은_열려있다(t *testing.T) {
 	a := &app{session: testSession()}
 	reached := 0
 	handler := a.requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { reached++ }))
 
-	for _, path := range []string{"/login", "/static/style.css", "/static/app.js"} {
+	open := []string{"/login", "/login/start", "/login/callback", "/static/style.css"}
+	for _, path := range open {
 		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, path, nil))
 	}
-	if reached != 3 {
-		t.Fatalf("%d개만 통과했다. 3개여야 한다", reached)
-	}
-}
-
-func TestCheckPassword(t *testing.T) {
-	if !checkPassword("hunter2", "hunter2") {
-		t.Error("같은 비밀번호가 거부됨")
-	}
-	for _, given := range []string{"", "hunter", "hunter22", "HUNTER2"} {
-		if checkPassword(given, "hunter2") {
-			t.Errorf("%q 가 통과했다", given)
-		}
+	if reached != len(open) {
+		t.Fatalf("%d개만 통과했다. %d개여야 한다", reached, len(open))
 	}
 }

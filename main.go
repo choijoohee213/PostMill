@@ -51,10 +51,6 @@ func main() {
 		log.Fatal("GEMINI_API_KEY가 설정되지 않았습니다")
 	}
 
-	password := os.Getenv("APP_PASSWORD")
-	if password == "" {
-		log.Fatal("APP_PASSWORD가 설정되지 않았습니다")
-	}
 	secret := os.Getenv("SESSION_SECRET")
 	if secret == "" {
 		log.Fatal("SESSION_SECRET이 설정되지 않았습니다")
@@ -66,7 +62,6 @@ func main() {
 		gemini:    NewGemini(apiKey),
 		threads:   NewThreads(),
 		session:   &session{secret: []byte(secret)},
-		password:  password,
 		appID:     os.Getenv("THREADS_APP_ID"),
 		appSecret: os.Getenv("THREADS_APP_SECRET"),
 	}
@@ -74,7 +69,8 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("GET /static/", http.FileServerFS(staticFS))
 	mux.HandleFunc("GET /login", a.handleLoginForm)
-	mux.HandleFunc("POST /login", a.handleLogin)
+	mux.HandleFunc("POST /login/start", a.handleLoginStart)
+	mux.HandleFunc("GET /login/callback", a.handleLoginCallback)
 	mux.HandleFunc("POST /logout", a.handleLogout)
 	mux.HandleFunc("GET /{$}", a.handleList)
 	mux.HandleFunc("GET /new", a.handleNewForm)
@@ -88,10 +84,7 @@ func main() {
 	mux.HandleFunc("POST /drafts/{id}/delete", a.handleDelete)
 	mux.HandleFunc("POST /drafts/{id}/publish", a.handlePublish)
 	mux.HandleFunc("GET /history", a.handleHistory)
-	mux.HandleFunc("GET /connect", a.handleConnectForm)
-	mux.HandleFunc("POST /connect", a.handleConnect)
-	mux.HandleFunc("POST /connect/start", a.handleConnectStart)
-	mux.HandleFunc("GET /connect/callback", a.handleConnectCallback)
+	mux.HandleFunc("GET /settings", a.handleSettings)
 	mux.HandleFunc("POST /disconnect", a.handleDisconnect)
 
 	port := os.Getenv("PORT")

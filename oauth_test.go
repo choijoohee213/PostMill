@@ -17,12 +17,12 @@ func oauthApp(t *testing.T) *app {
 		appID:     "test-app-id",
 		appSecret: "test-secret",
 		threads:   NewThreads(),
-		testTpl:   template.Must(template.New("connect.html").Parse(`{{.Error}}`)),
+		testTpl:   template.Must(template.New("login.html").Parse(`{{.Error}}`)),
 	}
 }
 
 func TestAuthorizeURL_필수_파라미터를_담는다(t *testing.T) {
-	raw := AuthorizeURL("app-1", "https://example.com/connect/callback", "st4te")
+	raw := AuthorizeURL("app-1", "https://example.com/login/callback", "st4te")
 	u, err := url.Parse(raw)
 	if err != nil {
 		t.Fatal(err)
@@ -33,7 +33,7 @@ func TestAuthorizeURL_필수_파라미터를_담는다(t *testing.T) {
 	q := u.Query()
 	for k, want := range map[string]string{
 		"client_id":     "app-1",
-		"redirect_uri":  "https://example.com/connect/callback",
+		"redirect_uri":  "https://example.com/login/callback",
 		"response_type": "code",
 		"state":         "st4te",
 	} {
@@ -49,9 +49,9 @@ func TestAuthorizeURL_필수_파라미터를_담는다(t *testing.T) {
 
 func TestConnectStart_state_쿠키를_심고_리다이렉트한다(t *testing.T) {
 	rec := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "https://app.example/connect/start", nil)
+	r := httptest.NewRequest(http.MethodPost, "https://app.example/login/start", nil)
 	r.Header.Set("X-Forwarded-Proto", "https")
-	oauthApp(t).handleConnectStart(rec, r)
+	oauthApp(t).handleLoginStart(rec, r)
 
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("code=%d", rec.Code)
@@ -79,7 +79,7 @@ func TestConnectStart_state_쿠키를_심고_리다이렉트한다(t *testing.T)
 		t.Fatalf("URL state=%q, 쿠키 state=%q", u.Query().Get("state"), state)
 	}
 	// 리디렉션 URI는 요청 호스트에서 만들어져야 한다.
-	if got := u.Query().Get("redirect_uri"); got != "https://app.example/connect/callback" {
+	if got := u.Query().Get("redirect_uri"); got != "https://app.example/login/callback" {
 		t.Fatalf("redirect_uri=%q", got)
 	}
 }
@@ -87,45 +87,37 @@ func TestConnectStart_state_쿠키를_심고_리다이렉트한다(t *testing.T)
 // 콜백에 state 없이 code만 들고 오는 요청은 남이 만든 것이다.
 func TestCallback_state가_없으면_거부한다(t *testing.T) {
 	rec := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/connect/callback?code=abc", nil)
-	oauthApp(t).handleConnectCallback(rec, r)
+	r := httptest.NewRequest(http.MethodGet, "/login/callback?code=abc", nil)
+	oauthApp(t).handleLoginCallback(rec, r)
 
-	if !strings.Contains(rec.Body.String(), "유효하지 않습니다") {
-		t.Fatalf("거부되지 않았다: %q", rec.Body.String())
-	}
+	assertLoginError(t, rec, "유효하지 않습니다")
 }
 
 func TestCallback_state가_다르면_거부한다(t *testing.T) {
 	rec := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/connect/callback?code=abc&state=attacker", nil)
+	r := httptest.NewRequest(http.MethodGet, "/login/callback?code=abc&state=attacker", nil)
 	r.AddCookie(&http.Cookie{Name: oauthStateCookie, Value: "mine"})
-	oauthApp(t).handleConnectCallback(rec, r)
+	oauthApp(t).handleLoginCallback(rec, r)
 
-	if !strings.Contains(rec.Body.String(), "유효하지 않습니다") {
-		t.Fatalf("거부되지 않았다: %q", rec.Body.String())
-	}
+	assertLoginError(t, rec, "유효하지 않습니다")
 }
 
 func TestCallback_승인_거부를_알린다(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet,
-		"/connect/callback?error=access_denied&error_description=user+denied", nil)
-	oauthApp(t).handleConnectCallback(rec, r)
+		"/login/callback?error=access_denied&error_description=user+denied", nil)
+	oauthApp(t).handleLoginCallback(rec, r)
 
-	if !strings.Contains(rec.Body.String(), "승인이 취소") {
-		t.Fatalf("안내가 없다: %q", rec.Body.String())
-	}
+	assertLoginError(t, rec, "승인이 취소")
 }
 
 func TestCallback_code가_없으면_거부한다(t *testing.T) {
 	rec := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/connect/callback?state=ok", nil)
+	r := httptest.NewRequest(http.MethodGet, "/login/callback?state=ok", nil)
 	r.AddCookie(&http.Cookie{Name: oauthStateCookie, Value: "ok"})
-	oauthApp(t).handleConnectCallback(rec, r)
+	oauthApp(t).handleLoginCallback(rec, r)
 
-	if !strings.Contains(rec.Body.String(), "인증 코드를 받지 못했습니다") {
-		t.Fatalf("거부되지 않았다: %q", rec.Body.String())
-	}
+	assertLoginError(t, rec, "인증 코드를 받지 못했습니다")
 }
 
 func TestPublicBase_프록시_뒤에서_https를_알아본다(t *testing.T) {
@@ -138,5 +130,21 @@ func TestPublicBase_프록시_뒤에서_https를_알아본다(t *testing.T) {
 	plain := httptest.NewRequest(http.MethodGet, "http://localhost:8123/x", nil)
 	if got := publicBase(plain); got != "http://localhost:8123" {
 		t.Fatalf("got=%q", got)
+	}
+}
+
+// assertLoginError는 로그인 화면으로 되돌려보내며 사유를 전달했는지 본다.
+func assertLoginError(t *testing.T, rec *httptest.ResponseRecorder, want string) {
+	t.Helper()
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("code=%d, 리다이렉트여야 한다. body=%q", rec.Code, rec.Body.String())
+	}
+	loc := rec.Header().Get("Location")
+	if !strings.HasPrefix(loc, "/login?error=") {
+		t.Fatalf("Location=%q", loc)
+	}
+	decoded, _ := url.QueryUnescape(loc)
+	if !strings.Contains(decoded, want) {
+		t.Fatalf("사유에 %q가 없다: %q", want, decoded)
 	}
 }

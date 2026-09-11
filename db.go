@@ -31,6 +31,7 @@ const (
 
 type Post struct {
 	ID              int64
+	UserID          string
 	Affiliate       string
 	ProductURL      string
 	AffiliateLink   string
@@ -63,12 +64,12 @@ func Open(ctx context.Context, databaseURL string) (*DB, error) {
 
 func (db *DB) Close() { db.pool.Close() }
 
-const postColumns = `id, affiliate, product_url, affiliate_link, memo, body, detail,
+const postColumns = `id, user_id, affiliate, product_url, affiliate_link, memo, body, detail,
 	status, error_msg, thread_permalink, created_at, published_at`
 
 func scanPost(row pgx.Row) (*Post, error) {
 	var p Post
-	err := row.Scan(&p.ID, &p.Affiliate, &p.ProductURL, &p.AffiliateLink, &p.Memo,
+	err := row.Scan(&p.ID, &p.UserID, &p.Affiliate, &p.ProductURL, &p.AffiliateLink, &p.Memo,
 		&p.Body, &p.Detail, &p.Status, &p.ErrorMsg, &p.ThreadPermalink, &p.CreatedAt, &p.PublishedAt)
 	if err != nil {
 		return nil, err
@@ -77,25 +78,27 @@ func scanPost(row pgx.Row) (*Post, error) {
 }
 
 // CreateDraft는 generating 상태의 row를 만들고 id를 반환한다.
-func (db *DB) CreateDraft(ctx context.Context, affiliate, productURL, affiliateLink, memo string) (int64, error) {
+func (db *DB) CreateDraft(ctx context.Context, userID, affiliate, productURL, affiliateLink, memo string) (int64, error) {
 	var id int64
 	err := db.pool.QueryRow(ctx,
-		`INSERT INTO posts (affiliate, product_url, affiliate_link, memo, status)
-		 VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-		affiliate, productURL, affiliateLink, memo, StatusGenerating).Scan(&id)
+		`INSERT INTO posts (user_id, affiliate, product_url, affiliate_link, memo, status)
+		 VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+		userID, affiliate, productURL, affiliateLink, memo, StatusGenerating).Scan(&id)
 	return id, err
 }
 
-func (db *DB) GetPost(ctx context.Context, id int64) (*Post, error) {
+// GetPost는 그 사용자의 게시물만 반환한다. 남의 글은 없는 것과 같다.
+func (db *DB) GetPost(ctx context.Context, userID string, id int64) (*Post, error) {
 	return scanPost(db.pool.QueryRow(ctx,
-		`SELECT `+postColumns+` FROM posts WHERE id = $1`, id))
+		`SELECT `+postColumns+` FROM posts WHERE id = $1 AND user_id = $2`, id, userID))
 }
 
 // ListByStatus는 주어진 상태들의 게시물을 최신순으로 반환한다.
-func (db *DB) ListByStatus(ctx context.Context, statuses ...string) ([]*Post, error) {
+func (db *DB) ListByStatus(ctx context.Context, userID string, statuses ...string) ([]*Post, error) {
 	rows, err := db.pool.Query(ctx,
-		`SELECT `+postColumns+` FROM posts WHERE status = ANY($1) ORDER BY created_at DESC`,
-		statuses)
+		`SELECT `+postColumns+` FROM posts
+		 WHERE user_id = $1 AND status = ANY($2) ORDER BY created_at DESC`,
+		userID, statuses)
 	if err != nil {
 		return nil, err
 	}
@@ -121,20 +124,22 @@ func (db *DB) SetGenerated(ctx context.Context, id int64, body, detail string) e
 }
 
 // UpdateBody는 편집 화면에서 수정한 본문과 디테일을 저장한다.
-func (db *DB) UpdateBody(ctx context.Context, id int64, body, detail string) error {
+func (db *DB) UpdateBody(ctx context.Context, userID string, id int64, body, detail string) error {
 	_, err := db.pool.Exec(ctx,
-		`UPDATE posts SET body = $2, detail = $3 WHERE id = $1`, id, body, detail)
+		`UPDATE posts SET body = $3, detail = $4 WHERE id = $1 AND user_id = $2`,
+		id, userID, body, detail)
 	return err
 }
 
 // SetStatus는 상태만 바꾼다 (보류, 재생성 등).
-func (db *DB) SetStatus(ctx context.Context, id int64, status string) error {
-	_, err := db.pool.Exec(ctx, `UPDATE posts SET status = $2 WHERE id = $1`, id, status)
+func (db *DB) SetStatus(ctx context.Context, userID string, id int64, status string) error {
+	_, err := db.pool.Exec(ctx,
+		`UPDATE posts SET status = $3 WHERE id = $1 AND user_id = $2`, id, userID, status)
 	return err
 }
 
-func (db *DB) DeletePost(ctx context.Context, id int64) error {
-	_, err := db.pool.Exec(ctx, `DELETE FROM posts WHERE id = $1`, id)
+func (db *DB) DeletePost(ctx context.Context, userID string, id int64) error {
+	_, err := db.pool.Exec(ctx, `DELETE FROM posts WHERE id = $1 AND user_id = $2`, id, userID)
 	return err
 }
 
@@ -148,10 +153,10 @@ var publishableStatuses = []string{StatusPending, StatusApproved, StatusFailed, 
 // 상태 전환을 여러 UPDATE로 쪼개면 안 된다. 예를 들어 approved로 바꾼 뒤
 // 선점하면, 두 번째 요청의 approved 전환이 첫 요청의 publishing을 덮어써서
 // 둘 다 통과한다. 반드시 이 한 번의 UPDATE로 끝내야 한다.
-func (db *DB) ClaimForPublish(ctx context.Context, id int64) (bool, error) {
+func (db *DB) ClaimForPublish(ctx context.Context, userID string, id int64) (bool, error) {
 	tag, err := db.pool.Exec(ctx,
-		`UPDATE posts SET status = $2 WHERE id = $1 AND status = ANY($3)`,
-		id, StatusPublishing, publishableStatuses)
+		`UPDATE posts SET status = $3 WHERE id = $1 AND user_id = $2 AND status = ANY($4)`,
+		id, userID, StatusPublishing, publishableStatuses)
 	if err != nil {
 		return false, err
 	}
@@ -210,11 +215,12 @@ func (db *DB) SetPublishNote(ctx context.Context, id int64, note string) error {
 	return err
 }
 
-// ListPublished는 발행 이력을 최신 발행순으로 반환한다.
-func (db *DB) ListPublished(ctx context.Context) ([]*Post, error) {
+// ListPublished는 그 사용자의 발행 이력을 최신 발행순으로 반환한다.
+func (db *DB) ListPublished(ctx context.Context, userID string) ([]*Post, error) {
 	rows, err := db.pool.Query(ctx,
-		`SELECT `+postColumns+` FROM posts WHERE status = $1 ORDER BY published_at DESC NULLS LAST`,
-		StatusPublished)
+		`SELECT `+postColumns+` FROM posts
+		 WHERE user_id = $1 AND status = $2 ORDER BY published_at DESC NULLS LAST`,
+		userID, StatusPublished)
 	if err != nil {
 		return nil, err
 	}
@@ -229,4 +235,46 @@ func (db *DB) ListPublished(ctx context.Context) ([]*Post, error) {
 		posts = append(posts, p)
 	}
 	return posts, rows.Err()
+}
+
+// ThreadsUser는 스레드 계정 하나와 그 토큰이다.
+type ThreadsUser struct {
+	UserID      string
+	Username    string
+	AccessToken string
+	ExpiresAt   time.Time
+}
+
+// SaveThreadsUser는 로그인한 사용자의 토큰을 저장한다.
+func (db *DB) SaveThreadsUser(ctx context.Context, u ThreadsUser) error {
+	_, err := db.pool.Exec(ctx,
+		`INSERT INTO threads_users (user_id, username, access_token, expires_at)
+		 VALUES ($1, $2, $3, $4)
+		 ON CONFLICT (user_id) DO UPDATE SET
+		   username = EXCLUDED.username,
+		   access_token = EXCLUDED.access_token,
+		   expires_at = EXCLUDED.expires_at,
+		   updated_at = now()`,
+		u.UserID, u.Username, u.AccessToken, u.ExpiresAt)
+	return err
+}
+
+// GetThreadsUser는 사용자의 토큰을 읽는다. 없으면 false.
+func (db *DB) GetThreadsUser(ctx context.Context, userID string) (*ThreadsUser, bool, error) {
+	var u ThreadsUser
+	err := db.pool.QueryRow(ctx,
+		`SELECT user_id, username, access_token, expires_at FROM threads_users WHERE user_id = $1`,
+		userID).Scan(&u.UserID, &u.Username, &u.AccessToken, &u.ExpiresAt)
+	if err == pgx.ErrNoRows {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	return &u, true, nil
+}
+
+func (db *DB) DeleteThreadsUser(ctx context.Context, userID string) error {
+	_, err := db.pool.Exec(ctx, `DELETE FROM threads_users WHERE user_id = $1`, userID)
+	return err
 }

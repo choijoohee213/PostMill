@@ -98,7 +98,7 @@ func (a *app) handleList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	posts, err := a.db.ListByStatus(r.Context(), current.Statuses...)
+	posts, err := a.db.ListByStatus(r.Context(), a.session.userID(r), current.Statuses...)
 	if err != nil {
 		log.Printf("목록 조회 실패: %v", err)
 		http.Error(w, "목록을 불러오지 못했습니다", http.StatusInternalServerError)
@@ -176,7 +176,8 @@ func (a *app) handleNewSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id, err := a.db.CreateDraft(r.Context(), form.Affiliate, form.ProductURL, form.AffiliateLink, form.Memo)
+	id, err := a.db.CreateDraft(r.Context(), a.session.userID(r),
+		form.Affiliate, form.ProductURL, form.AffiliateLink, form.Memo)
 	if err != nil {
 		log.Printf("초안 생성 실패: %v", err)
 		http.Error(w, "저장하지 못했습니다", http.StatusInternalServerError)
@@ -209,7 +210,7 @@ func (a *app) handleRetry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p, err := a.db.GetPost(r.Context(), id)
+	p, err := a.db.GetPost(r.Context(), a.session.userID(r), id)
 	if err != nil {
 		http.NotFound(w, r)
 		return
@@ -277,7 +278,8 @@ func (a *app) draftFor(w http.ResponseWriter, r *http.Request) (*Post, bool) {
 		http.NotFound(w, r)
 		return nil, false
 	}
-	p, err := a.db.GetPost(r.Context(), id)
+	// 남의 글은 조회되지 않으므로 여기서 404가 된다.
+	p, err := a.db.GetPost(r.Context(), a.session.userID(r), id)
 	if err != nil {
 		http.NotFound(w, r)
 		return nil, false
@@ -331,7 +333,7 @@ func (a *app) handleDraftSave(w http.ResponseWriter, r *http.Request) {
 	body := strings.TrimSpace(r.FormValue("body"))
 	detail := strings.TrimSpace(r.FormValue("detail"))
 	// 저장 자체는 막지 않는다. 발행 가능한지는 미리보기와 카운터가 알려준다.
-	if err := a.db.UpdateBody(r.Context(), p.ID, body, detail); err != nil {
+	if err := a.db.UpdateBody(r.Context(), p.UserID, p.ID, body, detail); err != nil {
 		log.Printf("본문 저장 실패 (id=%d): %v", p.ID, err)
 		a.renderEdit(w, p, "저장하지 못했습니다.")
 		return
@@ -346,7 +348,7 @@ func (a *app) handleRegenerate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := a.db.SetStatus(r.Context(), p.ID, StatusGenerating); err != nil {
+	if err := a.db.SetStatus(r.Context(), p.UserID, p.ID, StatusGenerating); err != nil {
 		log.Printf("재생성 준비 실패 (id=%d): %v", p.ID, err)
 		a.renderEdit(w, p, "재생성을 시작하지 못했습니다.")
 		return
@@ -369,7 +371,7 @@ func (a *app) changeStatus(w http.ResponseWriter, r *http.Request, status, redir
 	if !ok {
 		return
 	}
-	if err := a.db.SetStatus(r.Context(), p.ID, status); err != nil {
+	if err := a.db.SetStatus(r.Context(), p.UserID, p.ID, status); err != nil {
 		log.Printf("상태 변경 실패 (id=%d): %v", p.ID, err)
 		a.renderEdit(w, p, "상태를 바꾸지 못했습니다.")
 		return
@@ -382,7 +384,7 @@ func (a *app) handleDelete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := a.db.DeletePost(r.Context(), p.ID); err != nil {
+	if err := a.db.DeletePost(r.Context(), p.UserID, p.ID); err != nil {
 		log.Printf("삭제 실패 (id=%d): %v", p.ID, err)
 		a.renderEdit(w, p, "삭제하지 못했습니다.")
 		return
@@ -409,14 +411,14 @@ func (a *app) handlePublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, ok := a.currentToken(r.Context())
+	u, ok := a.currentUser(r)
 	if !ok {
-		a.renderEdit(w, p, "스레드 계정이 아직 연결되지 않았습니다. 설정에서 연결해주세요.")
+		a.renderEdit(w, p, "스레드 계정 정보를 찾을 수 없습니다. 다시 로그인해주세요.")
 		return
 	}
 
 	// 한 번의 조건부 UPDATE로 선점한다. 두 번째 요청은 여기서 걸린다.
-	claimed, err := a.db.ClaimForPublish(r.Context(), p.ID)
+	claimed, err := a.db.ClaimForPublish(r.Context(), p.UserID, p.ID)
 	if err != nil {
 		log.Printf("발행 선점 실패 (id=%d): %v", p.ID, err)
 		a.renderEdit(w, p, "발행을 시작하지 못했습니다.")
@@ -428,7 +430,7 @@ func (a *app) handlePublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := a.threads.Publish(r.Context(), token, text, p.Detail, reply)
+	res, err := a.threads.Publish(r.Context(), u.AccessToken, text, p.Detail, reply)
 	if err != nil {
 		log.Printf("발행 실패 (id=%d): %v", p.ID, err)
 		// 사유를 화면에도 남긴다. 여기서 나오는 메시지는 사용자가

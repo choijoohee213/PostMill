@@ -490,3 +490,23 @@ main {
   font-size: 12px;
   overflow-wrap: anywhere;
 }
+
+/* 로그인 화면 */
+.hero {
+  padding: 72px 0 0;
+  text-align: center;
+}
+
+.hero-title {
+  margin: 0 0 6px;
+  font-size: 28px;
+}
+
+.hero-sub {
+  margin: 0 0 28px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.hero .hint { text-align: center; }
+.hero .error { text-align: left; }
