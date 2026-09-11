@@ -49,7 +49,7 @@ func TestRetry_503은_다시_시도한다(t *testing.T) {
 		fmt.Fprint(w, okBody("세 번째에 성공한 본문"))
 	})
 
-	body, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400)
+	body, _, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400)
 	if err != nil {
 		t.Fatalf("재시도로 성공했어야 한다: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestRetry_429도_다시_시도한다(t *testing.T) {
 		fmt.Fprint(w, `{"error":{"message":"rate limit"}}`)
 	})
 
-	if _, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400); err == nil {
+	if _, _, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400); err == nil {
 		t.Fatal("계속 실패했으므로 에러여야 한다")
 	}
 	if *calls != maxAttempts {
@@ -84,7 +84,7 @@ func TestRetry_400은_다시_시도하지_않는다(t *testing.T) {
 		fmt.Fprint(w, `{"error":{"message":"API key not valid"}}`)
 	})
 
-	_, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400)
+	_, _, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400)
 	if err == nil {
 		t.Fatal("에러여야 한다")
 	}
@@ -106,7 +106,7 @@ func TestRetry_길이초과는_다시_뽑는다(t *testing.T) {
 		fmt.Fprint(w, okBody("짧은 본문"))
 	})
 
-	body, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 10)
+	body, _, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 10)
 	if err != nil {
 		t.Fatalf("두 번째에 성공했어야 한다: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestRetry_차단된_응답은_다시_시도하지_않는다(t *testing.T) {
 		fmt.Fprint(w, `{"promptFeedback":{"blockReason":"SAFETY"}}`)
 	})
 
-	if _, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400); err == nil {
+	if _, _, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400); err == nil {
 		t.Fatal("차단은 에러여야 한다")
 	}
 	if *calls != 1 {
@@ -138,7 +138,7 @@ func TestRetry_잘린_응답은_버린다(t *testing.T) {
 		fmt.Fprint(w, `{"candidates":[{"content":{"parts":[{"text":"잘린 본"}]},"finishReason":"MAX_TOKENS"}]}`)
 	})
 
-	if _, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400); err == nil {
+	if _, _, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400); err == nil {
 		t.Fatal("STOP이 아니면 에러여야 한다")
 	}
 }

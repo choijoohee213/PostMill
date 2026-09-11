@@ -4,24 +4,32 @@ if (document.getElementById('poll')) {
 }
 
 // 편집 화면: 글자 수 카운터와 미리보기를 입력에 맞춰 갱신한다.
-var body = document.getElementById('body');
-if (body) {
-  var counter = document.getElementById('counter');
-  var previewBody = document.getElementById('preview-body');
+function bindCounter(fieldId, counterId, previewId, cardId) {
+  var field = document.getElementById(fieldId);
+  if (!field) return;
+
+  var counter = document.getElementById(counterId);
+  var preview = document.getElementById(previewId);
+  var card = cardId ? document.getElementById(cardId) : null;
   var room = parseInt(counter.dataset.room, 10);
 
   var update = function () {
-    var text = body.value.trim();
+    var text = field.value.trim();
     // 한글은 바이트로 세면 3배가 되므로 코드 포인트 단위로 센다.
     var used = Array.from(text).length;
     counter.textContent = used + ' / ' + room;
     counter.classList.toggle('is-over', used > room);
-    previewBody.textContent = text;
+    if (preview) preview.textContent = text;
+    // 답글 카드는 내용이 있을 때만 보여준다.
+    if (card) card.hidden = text === '';
   };
 
-  body.addEventListener('input', update);
+  field.addEventListener('input', update);
   update();
 }
+
+bindCounter('body', 'counter', 'preview-body', null);
+bindCounter('detail', 'detail-counter', 'preview-detail', 'preview-detail-card');
 
 // 발행 버튼은 네트워크가 느리면 두 번 눌리기 쉽다. 첫 제출에 잠근다.
 // 서버도 조건부 UPDATE로 막지만, 버튼이 계속 눌리는 화면은 불안하다.

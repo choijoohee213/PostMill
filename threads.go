@@ -189,20 +189,39 @@ type PublishResult struct {
 	ReplyErr  error // 본문은 올라갔지만 링크 답글에 실패한 경우
 }
 
-// Publish는 본문을 올리고 그 글에 링크를 답글로 단다.
+// Publish는 본문을 올리고, 디테일과 링크를 답글로 이어 단다.
+//
+// 본문 → 디테일 답글 → 링크 답글 순으로 사슬처럼 이어진다. 디테일이
+// 비어 있으면 링크를 본문에 바로 단다.
 //
 // 본문 발행에 성공한 뒤 답글이 실패하면 ReplyErr에 담아 반환한다.
 // 이때 게시물은 이미 스레드에 올라가 있으므로 실패로 되돌리면 안 된다.
 // 되돌리면 사용자가 다시 발행을 눌러 같은 글이 두 번 올라간다.
-func (t *Threads) Publish(ctx context.Context, token, body, replyText string) (*PublishResult, error) {
+func (t *Threads) Publish(ctx context.Context, token, body, detail, replyText string) (*PublishResult, error) {
 	postID, err := t.publishText(ctx, token, body, "")
 	if err != nil {
 		return nil, err
 	}
 
 	res := &PublishResult{PostID: postID}
-	if _, err := t.publishText(ctx, token, replyText, postID); err != nil {
-		res.ReplyErr = err
+
+	// 링크는 사슬의 끝에 단다. 디테일이 실패하면 본문에 바로 단다.
+	parent := postID
+	if detail != "" {
+		detailID, err := t.publishText(ctx, token, detail, postID)
+		if err != nil {
+			res.ReplyErr = fmt.Errorf("디테일 답글: %w", err)
+		} else {
+			parent = detailID
+		}
+	}
+
+	if _, err := t.publishText(ctx, token, replyText, parent); err != nil {
+		if res.ReplyErr != nil {
+			res.ReplyErr = fmt.Errorf("%v, 링크 답글: %w", res.ReplyErr, err)
+		} else {
+			res.ReplyErr = fmt.Errorf("링크 답글: %w", err)
+		}
 	}
 
 	// 퍼머링크 조회에 실패해도 발행은 성공이다. 링크만 비워둔다.

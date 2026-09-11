@@ -12,11 +12,16 @@
     <p class="thread-body" id="preview-body">{{.Post.Body}}</p>
   </article>
 
+  <article class="thread-post thread-reply"{{if not .Post.Detail}} hidden{{end}} id="preview-detail-card">
+    <span class="reply-label">답글 1</span>
+    <p class="thread-body" id="preview-detail">{{.Post.Detail}}</p>
+  </article>
+
   <article class="thread-post thread-reply">
-    <span class="reply-label">답글</span>
+    <span class="reply-label">답글 2</span>
     <p class="thread-body">{{.Reply}}</p>
   </article>
-  <p class="hint">링크를 답글로 올리면 본문 노출이 덜 깎입니다. 대가성 문구는 규정상 본문 맨 앞에 있어야 합니다.</p>
+  <p class="hint">본문은 짧게 두고 나머지는 답글로 잇습니다. 링크를 본문에 넣으면 노출이 깎이고, 대가성 문구는 규정상 본문 맨 앞에 있어야 합니다.</p>
 </section>
 
 {{if eq .Post.Status "published"}}
@@ -25,9 +30,15 @@
 
 <form class="form" method="post" action="/drafts/{{.Post.ID}}">
   <label class="field">
-    <span class="label">본문</span>
-    <textarea name="body" id="body" rows="12" data-room="{{.Room}}">{{.Post.Body}}</textarea>
+    <span class="label">본문 <em>(짧게, {{.BodyTarget}}자 안팎)</em></span>
+    <textarea name="body" id="body" rows="6" data-room="{{.Room}}">{{.Post.Body}}</textarea>
     <span class="counter" id="counter" data-room="{{.Room}}">{{.Used}} / {{.Room}}</span>
+  </label>
+
+  <label class="field">
+    <span class="label">답글로 이어쓰기 <em>(선택)</em></span>
+    <textarea name="detail" id="detail" rows="6" data-room="{{.DetailLimit}}">{{.Post.Detail}}</textarea>
+    <span class="counter" id="detail-counter" data-room="{{.DetailLimit}}">{{.DetailUsed}} / {{.DetailLimit}}</span>
   </label>
 
   <div class="actions">
