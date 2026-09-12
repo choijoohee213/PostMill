@@ -20,7 +20,7 @@ type tab struct {
 
 var tabs = []tab{
 	{"review", "검수대기", []string{StatusGenerating, StatusPending, StatusApproved, StatusPublishing, StatusFailed}},
-	{"published", "발행완료", []string{StatusPublished}},
+	{"published", "게시완료", []string{StatusPublished}},
 	{"held", "보류", []string{StatusHeld}},
 }
 
@@ -86,6 +86,10 @@ type listData struct {
 	ActiveTab  string
 	Posts      []*Post
 	Generating bool // 생성 중인 카드가 있을 때만 폴링한다
+	Affiliates []affiliateOption
+	BatchSize  int
+	Missing    int    // 검수대기가 세 장에 못 미치는 만큼
+	LastAff    string // 추가 버튼이 쓸 제휴사
 }
 
 func (a *app) handleList(w http.ResponseWriter, r *http.Request) {
@@ -113,11 +117,27 @@ func (a *app) handleList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// 검수대기가 세 장에 못 미치면 채울 자리를 알려준다.
+	missing := 0
+	lastAff := AffiliateCoupang
+	if current.Key == "review" {
+		if n := autoBatchSize - len(posts); n > 0 {
+			missing = n
+		}
+		if len(posts) > 0 {
+			lastAff = posts[0].Affiliate
+		}
+	}
+
 	a.render(w, "list.html", listData{
 		Tabs:       tabs,
 		ActiveTab:  current.Key,
 		Posts:      posts,
 		Generating: generating,
+		Affiliates: affiliateOptions,
+		BatchSize:  autoBatchSize,
+		Missing:    missing,
+		LastAff:    lastAff,
 	})
 }
 
@@ -253,7 +273,7 @@ func (a *app) generate(id int64, affiliate, memo string) {
 		fail("초안을 만들지 못했습니다.", err)
 		return
 	}
-	if err := a.db.SetGenerated(ctx, id, body, detail); err != nil {
+	if err := a.db.SetGenerated(ctx, id, body, detail, ""); err != nil {
 		fail("저장하지 못했습니다.", err)
 	}
 }
@@ -268,6 +288,8 @@ type editData struct {
 	DetailLimit int
 	Used        int
 	DetailUsed  int
+	Detail2Used int
+	Handle      string
 	Error       string
 }
 
@@ -296,10 +318,15 @@ func (a *app) handleDraftEdit(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	a.renderEdit(w, p, "")
+	a.renderEdit(w, r, p, "")
 }
 
-func (a *app) renderEdit(w http.ResponseWriter, p *Post, errMsg string) {
+func (a *app) renderEdit(w http.ResponseWriter, r *http.Request, p *Post, errMsg string) {
+	handle := "@나"
+	if u, ok := a.currentUser(r); ok && u.Username != "" {
+		handle = "@" + u.Username
+	}
+
 	disclosure, _ := disclosureFor(p.Affiliate)
 	room, _ := BodyRoom(p.Affiliate)
 	reply, _ := ComposeReply(p.AffiliateLink)
@@ -307,7 +334,7 @@ func (a *app) renderEdit(w http.ResponseWriter, p *Post, errMsg string) {
 	// 미리보기는 발행과 같은 함수로 만든다. 화면과 실제 발행물이 달라질 수 없다.
 	preview, err := Compose(p.Affiliate, p.Body)
 	if err != nil && errMsg == "" {
-		errMsg = "지금 상태로는 발행할 수 없습니다: " + err.Error()
+		errMsg = "지금 상태로는 게시할 수 없어요: " + err.Error()
 	}
 
 	a.render(w, "edit.html", editData{
@@ -320,6 +347,8 @@ func (a *app) renderEdit(w http.ResponseWriter, p *Post, errMsg string) {
 		DetailLimit: detailMaxChars,
 		Used:        CharCount(strings.TrimSpace(p.Body)),
 		DetailUsed:  CharCount(strings.TrimSpace(p.Detail)),
+		Detail2Used: CharCount(strings.TrimSpace(p.Detail2)),
+		Handle:      handle,
 		Error:       errMsg,
 	})
 }
@@ -332,13 +361,14 @@ func (a *app) handleDraftSave(w http.ResponseWriter, r *http.Request) {
 
 	body := strings.TrimSpace(r.FormValue("body"))
 	detail := strings.TrimSpace(r.FormValue("detail"))
-	// 저장 자체는 막지 않는다. 발행 가능한지는 미리보기와 카운터가 알려준다.
-	if err := a.db.UpdateBody(r.Context(), p.UserID, p.ID, body, detail); err != nil {
+	detail2 := strings.TrimSpace(r.FormValue("detail2"))
+	// 저장 자체는 막지 않는다. 게시 가능한지는 미리보기와 카운터가 알려준다.
+	if err := a.db.UpdateBody(r.Context(), p.UserID, p.ID, body, detail, detail2); err != nil {
 		log.Printf("본문 저장 실패 (id=%d): %v", p.ID, err)
-		a.renderEdit(w, p, "저장하지 못했습니다.")
+		a.renderEdit(w, r, p, "저장하지 못했습니다.")
 		return
 	}
-	p.Body, p.Detail = body, detail
+	p.Body, p.Detail, p.Detail2 = body, detail, detail2
 
 	http.Redirect(w, r, fmt.Sprintf("/drafts/%d", p.ID), http.StatusSeeOther)
 }
@@ -350,7 +380,7 @@ func (a *app) handleRegenerate(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := a.db.SetStatus(r.Context(), p.UserID, p.ID, StatusGenerating); err != nil {
 		log.Printf("재생성 준비 실패 (id=%d): %v", p.ID, err)
-		a.renderEdit(w, p, "재생성을 시작하지 못했습니다.")
+		a.renderEdit(w, r, p, "재생성을 시작하지 못했습니다.")
 		return
 	}
 	go a.generate(p.ID, p.Affiliate, p.Memo)
@@ -373,7 +403,7 @@ func (a *app) changeStatus(w http.ResponseWriter, r *http.Request, status, redir
 	}
 	if err := a.db.SetStatus(r.Context(), p.UserID, p.ID, status); err != nil {
 		log.Printf("상태 변경 실패 (id=%d): %v", p.ID, err)
-		a.renderEdit(w, p, "상태를 바꾸지 못했습니다.")
+		a.renderEdit(w, r, p, "상태를 바꾸지 못했습니다.")
 		return
 	}
 	http.Redirect(w, r, redirect, http.StatusSeeOther)
@@ -386,7 +416,7 @@ func (a *app) handleDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := a.db.DeletePost(r.Context(), p.UserID, p.ID); err != nil {
 		log.Printf("삭제 실패 (id=%d): %v", p.ID, err)
-		a.renderEdit(w, p, "삭제하지 못했습니다.")
+		a.renderEdit(w, r, p, "삭제하지 못했습니다.")
 		return
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -402,18 +432,18 @@ func (a *app) handlePublish(w http.ResponseWriter, r *http.Request) {
 	// 발행 직전 가드. 조립에 실패하면 여기서 멈춘다 (SPEC 5-1).
 	text, err := Compose(p.Affiliate, p.Body)
 	if err != nil {
-		a.renderEdit(w, p, "발행할 수 없습니다: "+err.Error())
+		a.renderEdit(w, r, p, "게시할 수 없어요: "+err.Error())
 		return
 	}
 	reply, err := ComposeReply(p.AffiliateLink)
 	if err != nil {
-		a.renderEdit(w, p, "발행할 수 없습니다: "+err.Error())
+		a.renderEdit(w, r, p, "게시할 수 없어요: "+err.Error())
 		return
 	}
 
 	u, ok := a.currentUser(r)
 	if !ok {
-		a.renderEdit(w, p, "스레드 계정 정보를 찾을 수 없습니다. 다시 로그인해주세요.")
+		a.renderEdit(w, r, p, "Threads 계정 정보를 찾을 수 없어요. 다시 로그인해주세요.")
 		return
 	}
 
@@ -421,7 +451,7 @@ func (a *app) handlePublish(w http.ResponseWriter, r *http.Request) {
 	claimed, err := a.db.ClaimForPublish(r.Context(), p.UserID, p.ID)
 	if err != nil {
 		log.Printf("발행 선점 실패 (id=%d): %v", p.ID, err)
-		a.renderEdit(w, p, "발행을 시작하지 못했습니다.")
+		a.renderEdit(w, r, p, "게시를 시작하지 못했어요.")
 		return
 	}
 	if !claimed {
@@ -430,12 +460,12 @@ func (a *app) handlePublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := a.threads.Publish(r.Context(), u.AccessToken, text, p.Detail, reply)
+	res, err := a.threads.Publish(r.Context(), u.AccessToken, text, []string{p.Detail, p.Detail2}, reply)
 	if err != nil {
 		log.Printf("발행 실패 (id=%d): %v", p.ID, err)
 		// 사유를 화면에도 남긴다. 여기서 나오는 메시지는 사용자가
 		// 보고 조치할 수 있는 내용이라 감추면 원인을 알 길이 없다.
-		if dbErr := a.db.MarkFailed(r.Context(), p.ID, "발행 실패: "+err.Error()); dbErr != nil {
+		if dbErr := a.db.MarkFailed(r.Context(), p.ID, "게시 실패: "+err.Error()); dbErr != nil {
 			log.Printf("실패 기록도 실패 (id=%d): %v", p.ID, dbErr)
 		}
 		http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -449,7 +479,7 @@ func (a *app) handlePublish(w http.ResponseWriter, r *http.Request) {
 	if res.ReplyErr != nil {
 		log.Printf("링크 답글 실패 (id=%d): %v", p.ID, res.ReplyErr)
 		if dbErr := a.db.SetPublishNote(r.Context(), p.ID,
-			"글은 올라갔지만 답글에 실패했습니다. 스레드에서 직접 달아주세요: "+res.ReplyErr.Error()); dbErr != nil {
+			"글은 올라갔지만 답글에 실패했어요. Threads에서 직접 달아주세요: "+res.ReplyErr.Error()); dbErr != nil {
 			log.Printf("답글 실패 기록도 실패 (id=%d): %v", p.ID, dbErr)
 		}
 	}

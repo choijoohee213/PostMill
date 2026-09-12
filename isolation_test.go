@@ -27,8 +27,8 @@ func TestIsolation(t *testing.T) {
 		db.DeletePost(ctx, sister, herID)
 	})
 
-	db.SetGenerated(ctx, myID, "내 본문", "")
-	db.SetGenerated(ctx, herID, "언니 본문", "")
+	db.SetGenerated(ctx, myID, "내 본문", "", "")
+	db.SetGenerated(ctx, herID, "언니 본문", "", "")
 
 	t.Run("남의 글은 조회되지 않는다", func(t *testing.T) {
 		if _, err := db.GetPost(ctx, me, herID); err == nil {
@@ -52,7 +52,7 @@ func TestIsolation(t *testing.T) {
 	})
 
 	t.Run("남의 글은 수정되지 않는다", func(t *testing.T) {
-		if err := db.UpdateBody(ctx, me, herID, "해킹된 본문", ""); err != nil {
+		if err := db.UpdateBody(ctx, me, herID, "해킹된 본문", "", ""); err != nil {
 			t.Fatal(err)
 		}
 		her, err := db.GetPost(ctx, sister, herID)

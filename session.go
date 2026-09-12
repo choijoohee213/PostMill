@@ -85,8 +85,9 @@ func (a *app) handleLoginForm(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
-	a.render(w, "login.html", map[string]string{
-		"Error": r.URL.Query().Get("error"),
+	a.render(w, "login.html", map[string]any{
+		"Error":    r.URL.Query().Get("error"),
+		"DevLogin": a.devLoginEnabled(r),
 	})
 }
 
@@ -110,6 +111,7 @@ func (a *app) requireAuth(next http.Handler) http.Handler {
 func isPublicPath(path string) bool {
 	return path == "/login" ||
 		path == "/login/start" ||
+		path == "/login/dev" ||
 		path == callbackPath ||
 		strings.HasPrefix(path, "/static/")
 }

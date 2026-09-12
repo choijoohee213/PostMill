@@ -197,7 +197,7 @@ type PublishResult struct {
 // 본문 발행에 성공한 뒤 답글이 실패하면 ReplyErr에 담아 반환한다.
 // 이때 게시물은 이미 스레드에 올라가 있으므로 실패로 되돌리면 안 된다.
 // 되돌리면 사용자가 다시 발행을 눌러 같은 글이 두 번 올라간다.
-func (t *Threads) Publish(ctx context.Context, token, body, detail, replyText string) (*PublishResult, error) {
+func (t *Threads) Publish(ctx context.Context, token, body string, details []string, replyText string) (*PublishResult, error) {
 	postID, err := t.publishText(ctx, token, body, "")
 	if err != nil {
 		return nil, err
@@ -205,23 +205,32 @@ func (t *Threads) Publish(ctx context.Context, token, body, detail, replyText st
 
 	res := &PublishResult{PostID: postID}
 
-	// 링크는 사슬의 끝에 단다. 디테일이 실패하면 본문에 바로 단다.
+	// 답글을 차례로 이어 달고, 링크는 사슬의 끝에 단다.
+	// 중간 답글이 실패해도 멈추지 않는다. 마지막 성공 지점에 이어 붙인다.
 	parent := postID
-	if detail != "" {
-		detailID, err := t.publishText(ctx, token, detail, postID)
-		if err != nil {
-			res.ReplyErr = fmt.Errorf("디테일 답글: %w", err)
+	addErr := func(label string, err error) {
+		e := fmt.Errorf("%s: %w", label, err)
+		if res.ReplyErr == nil {
+			res.ReplyErr = e
 		} else {
-			parent = detailID
+			res.ReplyErr = fmt.Errorf("%v, %w", res.ReplyErr, e)
 		}
 	}
 
-	if _, err := t.publishText(ctx, token, replyText, parent); err != nil {
-		if res.ReplyErr != nil {
-			res.ReplyErr = fmt.Errorf("%v, 링크 답글: %w", res.ReplyErr, err)
-		} else {
-			res.ReplyErr = fmt.Errorf("링크 답글: %w", err)
+	for i, d := range details {
+		if strings.TrimSpace(d) == "" {
+			continue
 		}
+		id, err := t.publishText(ctx, token, d, parent)
+		if err != nil {
+			addErr(fmt.Sprintf("답글 %d", i+1), err)
+			continue
+		}
+		parent = id
+	}
+
+	if _, err := t.publishText(ctx, token, replyText, parent); err != nil {
+		addErr("링크 답글", err)
 	}
 
 	// 퍼머링크 조회에 실패해도 발행은 성공이다. 링크만 비워둔다.

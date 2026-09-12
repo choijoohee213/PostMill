@@ -22,9 +22,9 @@ type app struct {
 	threads *Threads
 
 	session   *session
-	password  string
 	appID     string
 	appSecret string
+	devUserID string // 로컬 개발용 로그인. devlogin.go 참고
 
 	testTpl *template.Template // 테스트에서 전체 템플릿 없이 렌더링하기 위해 쓴다
 }
@@ -64,6 +64,7 @@ func main() {
 		session:   &session{secret: []byte(secret)},
 		appID:     os.Getenv("THREADS_APP_ID"),
 		appSecret: os.Getenv("THREADS_APP_SECRET"),
+		devUserID: os.Getenv("DEV_LOGIN_USER_ID"),
 	}
 
 	mux := http.NewServeMux()
@@ -71,10 +72,15 @@ func main() {
 	mux.HandleFunc("GET /login", a.handleLoginForm)
 	mux.HandleFunc("POST /login/start", a.handleLoginStart)
 	mux.HandleFunc("GET /login/callback", a.handleLoginCallback)
+	mux.HandleFunc("POST /login/dev", a.handleDevLogin)
 	mux.HandleFunc("POST /logout", a.handleLogout)
 	mux.HandleFunc("GET /{$}", a.handleList)
 	mux.HandleFunc("GET /new", a.handleNewForm)
 	mux.HandleFunc("POST /new", a.handleNewSubmit)
+	mux.HandleFunc("POST /auto", a.handleAuto)
+	mux.HandleFunc("POST /auto/one", a.handleAutoOne)
+	mux.HandleFunc("POST /drafts/{id}/refresh", a.handleRefresh)
+	mux.HandleFunc("POST /drafts/{id}/link", a.handleSaveLink)
 	mux.HandleFunc("POST /drafts/{id}/retry", a.handleRetry)
 	mux.HandleFunc("GET /drafts/{id}", a.handleDraftEdit)
 	mux.HandleFunc("POST /drafts/{id}", a.handleDraftSave)

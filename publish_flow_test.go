@@ -68,7 +68,7 @@ func TestPublishHandler_중복_발행을_막는다(t *testing.T) {
 	t.Cleanup(func() { a.db.DeleteThreadsUser(ctx, testUser) })
 
 	id, _ := a.db.CreateDraft(ctx, testUser, AffiliateCoupang, "", "https://link.example/x", "메모")
-	a.db.SetGenerated(ctx, id, "발행할 본문이다", "")
+	a.db.SetGenerated(ctx, id, "발행할 본문이다", "", "")
 	t.Cleanup(func() { a.db.DeletePost(ctx, testUser, id) })
 
 	// 버튼을 두 번 누른 상황을 흉내낸다.
@@ -112,7 +112,7 @@ func TestPublishHandler_토큰이_없으면_발행하지_않는다(t *testing.T)
 	const testUser = "publish-test-notoken"
 	a.db.DeleteThreadsUser(ctx, testUser)
 	id, _ := a.db.CreateDraft(ctx, testUser, AffiliateCoupang, "", "https://link.example/x", "메모")
-	a.db.SetGenerated(ctx, id, "본문", "")
+	a.db.SetGenerated(ctx, id, "본문", "", "")
 	t.Cleanup(func() { a.db.DeletePost(ctx, testUser, id) })
 
 	rec := httptest.NewRecorder()
@@ -144,13 +144,13 @@ func TestPublishHandler_본문이_비면_발행하지_않는다(t *testing.T) {
 	t.Cleanup(func() { a.db.DeleteThreadsUser(ctx, testUser) })
 
 	id, _ := a.db.CreateDraft(ctx, testUser, AffiliateCoupang, "", "https://link.example/x", "메모")
-	a.db.SetGenerated(ctx, id, "", "")
+	a.db.SetGenerated(ctx, id, "", "", "")
 	t.Cleanup(func() { a.db.DeletePost(ctx, testUser, id) })
 
 	rec := httptest.NewRecorder()
 	a.handlePublish(rec, a.signedRequest(t, testUser, "/publish", id))
 
-	if !strings.Contains(rec.Body.String(), "발행할 수 없습니다") {
+	if !strings.Contains(rec.Body.String(), "게시할 수 없어요") {
 		t.Fatalf("가드가 동작하지 않았다: %q", rec.Body.String())
 	}
 }

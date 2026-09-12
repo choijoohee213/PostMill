@@ -3,40 +3,74 @@ if (document.getElementById('poll')) {
   setTimeout(function () { location.reload(); }, 5000);
 }
 
-// 편집 화면: 글자 수 카운터와 미리보기를 입력에 맞춰 갱신한다.
-function bindCounter(fieldId, counterId, previewId, cardId) {
-  var field = document.getElementById(fieldId);
-  if (!field) return;
+// 편집 화면: 연필을 누르면 그 블록만 편집기로 바뀌고, 연필이 저장 버튼이 된다.
+(function () {
+  var form = document.getElementById('edit-form');
+  if (!form) return;
 
-  var counter = document.getElementById(counterId);
-  var preview = document.getElementById(previewId);
-  var card = cardId ? document.getElementById(cardId) : null;
-  var room = parseInt(counter.dataset.room, 10);
+  var dirty = false;
+  var open = {};
 
-  var update = function () {
-    var text = field.value.trim();
+  function countChars(text) {
     // 한글은 바이트로 세면 3배가 되므로 코드 포인트 단위로 센다.
-    var used = Array.from(text).length;
-    counter.textContent = used + ' / ' + room;
-    counter.classList.toggle('is-over', used > room);
-    if (preview) preview.textContent = text;
-    // 답글 카드는 내용이 있을 때만 보여준다.
-    if (card) card.hidden = text === '';
-  };
+    return Array.from(text.trim()).length;
+  }
 
-  field.addEventListener('input', update);
-  update();
-}
+  function bind(name, previewId, cardId, counterId) {
+    var field = document.getElementById(name);
+    if (!field) return;
 
-bindCounter('body', 'counter', 'preview-body', null);
-bindCounter('detail', 'detail-counter', 'preview-detail', 'preview-detail-card');
+    var pencil = form.querySelector('[data-edit="' + name + '"]');
+    var view = form.querySelector('[data-view="' + name + '"]');
+    var editor = form.querySelector('[data-editor="' + name + '"]');
+    var preview = document.getElementById(previewId);
+    var card = cardId ? document.getElementById(cardId) : null;
+    var counter = document.getElementById(counterId);
+    var room = parseInt(counter.dataset.room, 10);
+    var empty = view.querySelector('.tempty');
 
-// 발행 버튼은 네트워크가 느리면 두 번 눌리기 쉽다. 첫 제출에 잠근다.
-// 서버도 조건부 UPDATE로 막지만, 버튼이 계속 눌리는 화면은 불안하다.
-document.querySelectorAll('[data-publish]').forEach(function (form) {
-  form.addEventListener('submit', function () {
-    var btn = form.querySelector('button');
-    btn.disabled = true;
-    btn.textContent = '발행 중...';
+    function paint() {
+      var text = field.value.trim();
+      var used = countChars(text);
+      counter.textContent = used + ' / ' + room;
+      counter.classList.toggle('is-over', used > room);
+      preview.textContent = text;
+      if (empty) empty.hidden = text !== '';
+      if (card) card.dataset.empty = text === '' ? '1' : '';
+    }
+
+    pencil.addEventListener('click', function () {
+      if (open[name]) {
+        form.requestSubmit();
+        return;
+      }
+      open[name] = true;
+      view.hidden = true;
+      editor.hidden = false;
+      pencil.textContent = '저장';
+      pencil.classList.add('pencil-save');
+      pencil.title = '수정 내용 저장';
+      field.focus();
+      field.setSelectionRange(field.value.length, field.value.length);
+    });
+
+    field.addEventListener('input', function () {
+      dirty = true;
+      paint();
+    });
+    paint();
+  }
+
+  bind('body', 'preview-body', null, 'counter');
+  bind('detail', 'preview-detail', 'preview-detail-card', 'detail-counter');
+  bind('detail2', 'preview-detail2', 'preview-detail2-card', 'detail2-counter');
+
+  form.addEventListener('submit', function () { dirty = false; });
+
+  // 고치다 만 상태로 나가면 내용이 사라진다.
+  window.addEventListener('beforeunload', function (e) {
+    if (!dirty) return;
+    e.preventDefault();
+    e.returnValue = '';
   });
-});
+})();
