@@ -356,7 +356,11 @@ func (t *Threads) exchangeAt(ctx context.Context, base, appSecret, shortToken st
 }
 
 // threadsAuthorizeURL은 사용자가 권한을 승인하는 화면이다.
-const threadsAuthorizeURL = "https://threads.net/oauth/authorize"
+//
+// threads.net은 www.threads.com으로 301 리다이렉트된다. 모바일에서는
+// 그 한 번의 중간 이동에서 Threads 앱이 링크를 가로채 흐름이 끊기는 일이
+// 잦으므로, 처음부터 최종 주소로 보낸다.
+const threadsAuthorizeURL = "https://www.threads.com/oauth/authorize"
 
 // threadsScopes는 이 앱이 필요한 권한이다.
 // 답글로 링크를 올리므로 threads_manage_replies가 필요하다.
