@@ -74,3 +74,28 @@ if (document.getElementById('poll')) {
     e.returnValue = '';
   });
 })();
+
+// 로그인 화면: 버튼으로 입력 칸을 갈아끼운다.
+// 자바스크립트가 없으면 모든 칸이 그대로 보여 여전히 로그인할 수 있다.
+(function () {
+  var buttons = document.querySelectorAll('[data-panel]');
+  if (buttons.length < 2) return;
+
+  var panels = document.querySelectorAll('[data-login-panel]');
+
+  function show(name) {
+    panels.forEach(function (p) {
+      p.hidden = p.dataset.loginPanel !== name;
+    });
+    buttons.forEach(function (b) {
+      b.classList.toggle('is-active', b.dataset.panel === name);
+    });
+    var first = document.querySelector('[data-login-panel="' + name + '"] textarea, ' +
+      '[data-login-panel="' + name + '"] input');
+    if (first) first.focus();
+  }
+
+  buttons.forEach(function (b) {
+    b.addEventListener('click', function () { show(b.dataset.panel); });
+  });
+})();

@@ -138,7 +138,7 @@ func TestRequireAuth_로그인_경로와_정적파일은_열려있다(t *testing
 	reached := 0
 	handler := a.requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { reached++ }))
 
-	open := []string{"/login", "/login/token", "/static/style.css"}
+	open := []string{"/login", "/login/token", "/login/admin", "/static/style.css"}
 	for _, path := range open {
 		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, path, nil))
 	}
@@ -147,10 +147,10 @@ func TestRequireAuth_로그인_경로와_정적파일은_열려있다(t *testing
 	}
 }
 
-// OAuth 로그인을 걷어냈으므로 그 경로는 더 이상 열려 있으면 안 된다.
-func TestRequireAuth_사라진_OAuth_경로는_닫혀있다(t *testing.T) {
+// 걷어낸 로그인 경로들은 더 이상 열려 있으면 안 된다.
+func TestRequireAuth_사라진_로그인_경로는_닫혀있다(t *testing.T) {
 	a := &app{session: testSession()}
-	for _, path := range []string{"/login/start", "/login/callback"} {
+	for _, path := range []string{"/login/start", "/login/callback", "/login/dev"} {
 		reached := false
 		rec := httptest.NewRecorder()
 		a.requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

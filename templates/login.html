@@ -6,40 +6,48 @@
 
   {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
 
-  <form class="form" method="post" action="/login/token">
-    <label class="field">
-      <span class="label">액세스 토큰</span>
-      <textarea name="token" rows="4" placeholder="TH..." required autofocus></textarea>
-      <span class="hint">토큰은 관리자에게 문의하세요.</span>
-    </label>
-    <div class="actions">
-      <button class="btn btn-primary btn-block" type="submit">로그인</button>
-    </div>
-  </form>
+  <div class="login-choice" role="tablist">
+    <button class="choice-btn is-active" type="button" data-panel="token" role="tab">{{template "at_icon"}}Threads 로그인</button>
+    {{if .Admin}}
+    <button class="choice-btn" type="button" data-panel="admin" role="tab">{{template "shield_icon"}}관리자 로그인</button>
+    {{end}}
+  </div>
 
-  <p class="hint login-note">한 번 로그인하면 이 기기에서는 다시 할 일이 없습니다.</p>
+  <section class="login-panel" data-login-panel="token">
+    <p class="panel-desc">
+      Threads에 글을 게시하기 위해선 계정의 액세스 토큰이 필요합니다.<br>
+      액세스 토큰은 관리자에게 문의하세요.
+    </p>
+    <form class="form" method="post" action="/login/token">
+      <label class="field">
+        <span class="label">액세스 토큰</span>
+        <textarea name="token" rows="4" placeholder="TH..." required></textarea>
+      </label>
+      <div class="actions">
+        <button class="btn btn-primary btn-block" type="submit">로그인</button>
+      </div>
+    </form>
+  </section>
 
   {{if .Admin}}
-  <details class="fallback">
-    <summary>관리자 로그인</summary>
-    <p class="hint">초안을 만들고 다듬을 수 있습니다. Threads 게시는 토큰으로 로그인해야 합니다.</p>
+  <section class="login-panel" data-login-panel="admin" hidden>
+    <p class="panel-desc">
+      AI 자동 생성과 초안 검수, 수정까지 이용할 수 있습니다.<br>
+      Threads 계정이 연결되지 않아 <b>게시는 할 수 없습니다.</b>
+    </p>
     <form class="form" method="post" action="/login/admin">
       <label class="field">
         <span class="label">비밀번호</span>
         <input type="password" name="password" autocomplete="current-password" required>
       </label>
       <div class="actions">
-        <button class="btn" type="submit">관리자로 로그인</button>
+        <button class="btn btn-primary btn-block" type="submit">로그인</button>
       </div>
     </form>
-  </details>
+  </section>
   {{end}}
 
-  {{if .DevLogin}}
-  <form method="post" action="/login/dev" class="dev-login">
-    <button class="btn btn-small" type="submit">개발용 로그인 (로컬 전용)</button>
-  </form>
-  {{end}}
+  <p class="hint login-note">한 번 로그인하면 이 기기에서는 다시 할 일이 없습니다.</p>
 </div>
 
 {{template "foot" .}}
