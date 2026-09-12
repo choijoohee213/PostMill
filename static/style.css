@@ -879,6 +879,23 @@ main {
 
 .switch-form { margin-top: 8px; }
 
-.hero + .error { margin: 0 0 16px; }
-.login-note { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
-.panel .steps { margin: 14px 0 4px; }
+.login-box {
+  max-width: 420px;
+  margin: 0 auto;
+  padding: 56px 0 0;
+}
+
+.login-box .hero-title { text-align: center; }
+.login-box .hero-sub { text-align: center; }
+.login-box textarea {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.login-note { margin-top: 14px; text-align: center; }
