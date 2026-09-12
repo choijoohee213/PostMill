@@ -29,6 +29,14 @@ var templateFuncs = template.FuncMap{
 	"formatTime":  formatTime,
 	"affiliateKo": affiliateKo,
 	"canRetry":    canRetry,
+	"canResume":   canResume,
+}
+
+// canResume은 게시가 끊긴 채 멈춘 글인지 본다.
+func canResume(p *Post) bool {
+	return p.Status == StatusPublishing &&
+		p.PublishStartedAt != nil &&
+		time.Since(*p.PublishStartedAt) > publishStaleAfter
 }
 
 // staleAfter가 지나도록 generating에 머문 초안은 goroutine이 죽은 것으로 본다.
@@ -109,9 +117,10 @@ func (a *app) handleList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 생성 중이거나 올리는 중인 카드가 있을 때만 폴링한다.
 	generating := false
 	for _, p := range posts {
-		if p.Status == StatusGenerating {
+		if p.Status == StatusGenerating || (p.Status == StatusPublishing && !canResume(p)) {
 			generating = true
 			break
 		}
@@ -461,29 +470,8 @@ func (a *app) handlePublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := a.threads.Publish(r.Context(), u.AccessToken, text, []string{p.Detail, p.Detail2}, reply)
-	if err != nil {
-		log.Printf("발행 실패 (id=%d): %v", p.ID, err)
-		// 사유를 화면에도 남긴다. 여기서 나오는 메시지는 사용자가
-		// 보고 조치할 수 있는 내용이라 감추면 원인을 알 길이 없다.
-		if dbErr := a.db.MarkFailed(r.Context(), p.ID, "게시 실패: "+err.Error()); dbErr != nil {
-			log.Printf("실패 기록도 실패 (id=%d): %v", p.ID, dbErr)
-		}
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-		return
-	}
-
-	if err := a.db.MarkPublished(r.Context(), p.ID, res.Permalink); err != nil {
-		log.Printf("발행 기록 실패 (id=%d): %v", p.ID, err)
-	}
-	// 본문은 올라갔는데 링크 답글만 실패한 경우. 발행을 되돌리지 않고 알리기만 한다.
-	if res.ReplyErr != nil {
-		log.Printf("링크 답글 실패 (id=%d): %v", p.ID, res.ReplyErr)
-		if dbErr := a.db.SetPublishNote(r.Context(), p.ID,
-			"글은 올라갔지만 답글에 실패했어요. Threads에서 직접 달아주세요: "+res.ReplyErr.Error()); dbErr != nil {
-			log.Printf("답글 실패 기록도 실패 (id=%d): %v", p.ID, dbErr)
-		}
-	}
+	// 게시는 백그라운드로 넘기고 바로 목록으로 보낸다.
+	a.startPublish(p, u.AccessToken, text, reply)
 
 	http.Redirect(w, r, "/?tab=published", http.StatusSeeOther)
 }

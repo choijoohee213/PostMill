@@ -44,6 +44,7 @@
           <div class="card-head">
             <span class="badge badge-{{.Affiliate}}">{{affiliateKo .Affiliate}}</span>
             {{if eq .Status "failed"}}<span class="badge badge-failed">게시 실패</span>{{end}}
+            {{if eq .Status "publishing"}}<span class="badge badge-warn">게시 중</span>{{end}}
             {{if and (eq .Status "published") .ErrorMsg}}<span class="badge badge-failed">답글 실패</span>{{end}}
             {{if not .AffiliateLink}}<span class="badge badge-warn">링크 없음</span>{{end}}
             <time>{{formatTime .CreatedAt}}</time>
@@ -69,7 +70,13 @@
         </form>
         <a class="btn btn-small" href="/drafts/{{.ID}}">열어서 편집</a>
         <span class="spacer"></span>
-        {{if ne .Status "published"}}
+        {{if canResume .}}
+          <form method="post" action="/drafts/{{.ID}}/resume" data-publish>
+            <button class="btn btn-small btn-primary" type="submit">이어서 게시</button>
+          </form>
+        {{else if eq .Status "publishing"}}
+          <span class="need-link">올리는 중이에요...</span>
+        {{else if ne .Status "published"}}
           {{if .AffiliateLink}}
           <form method="post" action="/drafts/{{.ID}}/publish" data-publish>
             <button class="btn btn-small btn-primary" type="submit">Threads에 게시</button>

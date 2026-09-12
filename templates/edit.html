@@ -127,7 +127,14 @@
 <section class="step">
   <h2 class="step-title"><span class="step-num">3</span> Threads에 게시</h2>
 
-  {{if ne .Post.Status "published"}}
+  {{if canResume .Post}}
+  <p class="notice">게시가 중간에 멈췄어요. 이어서 누르면 남은 답글만 올립니다.</p>
+  <form method="post" action="/drafts/{{.Post.ID}}/resume" data-publish>
+    <button class="btn btn-primary btn-block" type="submit">이어서 게시</button>
+  </form>
+  {{else if eq .Post.Status "publishing"}}
+  <p class="notice">올리는 중이에요. 잠시 뒤 목록에서 확인해주세요.</p>
+  {{else if ne .Post.Status "published"}}
   <form method="post" action="/drafts/{{.Post.ID}}/publish" data-publish>
     <button class="btn btn-primary btn-block" type="submit"{{if or .Error (not .Post.AffiliateLink)}} disabled{{end}}>Threads에 게시</button>
   </form>

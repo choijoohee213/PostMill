@@ -84,19 +84,32 @@ func TestPublishHandler_중복_발행을_막는다(t *testing.T) {
 	}
 	wg.Wait()
 
+	// 게시는 백그라운드로 도므로 끝날 때까지 기다린다.
+	var p *Post
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		p, _ = a.db.GetPost(ctx, testUser, id)
+		if p != nil && p.Status == StatusPublished {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("게시가 끝나지 않았다. 상태=%s", p.Status)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
 	mu.Lock()
 	n := published
 	mu.Unlock()
+	// 버튼을 두 번 눌렀어도 본문은 한 번만 올라가야 한다.
 	if n != 1 {
 		t.Fatalf("본문 발행이 %d회 일어났다. 1회여야 한다", n)
 	}
-
-	p, _ := a.db.GetPost(ctx, testUser, id)
-	if p.Status != StatusPublished {
-		t.Fatalf("상태=%s, published여야 한다", p.Status)
-	}
 	if p.ThreadPermalink == "" {
 		t.Fatal("퍼머링크가 비었다")
+	}
+	if p.RepliesDone != 3 {
+		t.Fatalf("답글 진행=%d, 3이어야 한다", p.RepliesDone)
 	}
 }
 

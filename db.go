@@ -30,21 +30,25 @@ const (
 )
 
 type Post struct {
-	ID              int64
-	UserID          string
-	Affiliate       string
-	ProductURL      string
-	AffiliateLink   string
-	Memo            string
-	ProductName     string
-	Body            string
-	Detail          string
-	Detail2         string
-	Status          string
-	ErrorMsg        string
-	ThreadPermalink string
-	CreatedAt       time.Time
-	PublishedAt     *time.Time
+	ID               int64
+	UserID           string
+	Affiliate        string
+	ProductURL       string
+	AffiliateLink    string
+	Memo             string
+	ProductName      string
+	Body             string
+	Detail           string
+	Detail2          string
+	Status           string
+	ErrorMsg         string
+	ThreadPermalink  string
+	ThreadPostID     string
+	RepliesDone      int
+	LastReplyID      string
+	PublishStartedAt *time.Time
+	CreatedAt        time.Time
+	PublishedAt      *time.Time
 }
 
 type DB struct {
@@ -67,12 +71,15 @@ func Open(ctx context.Context, databaseURL string) (*DB, error) {
 func (db *DB) Close() { db.pool.Close() }
 
 const postColumns = `id, user_id, affiliate, product_url, affiliate_link, memo, product_name, body, detail, detail2,
-	status, error_msg, thread_permalink, created_at, published_at`
+	status, error_msg, thread_permalink,
+	thread_post_id, replies_done, last_reply_id, publish_started_at,
+	created_at, published_at`
 
 func scanPost(row pgx.Row) (*Post, error) {
 	var p Post
 	err := row.Scan(&p.ID, &p.UserID, &p.Affiliate, &p.ProductURL, &p.AffiliateLink, &p.Memo,
 		&p.ProductName, &p.Body, &p.Detail, &p.Detail2, &p.Status, &p.ErrorMsg, &p.ThreadPermalink,
+		&p.ThreadPostID, &p.RepliesDone, &p.LastReplyID, &p.PublishStartedAt,
 		&p.CreatedAt, &p.PublishedAt)
 	if err != nil {
 		return nil, err
@@ -184,7 +191,9 @@ var publishableStatuses = []string{StatusPending, StatusApproved, StatusFailed, 
 // 둘 다 통과한다. 반드시 이 한 번의 UPDATE로 끝내야 한다.
 func (db *DB) ClaimForPublish(ctx context.Context, userID string, id int64) (bool, error) {
 	tag, err := db.pool.Exec(ctx,
-		`UPDATE posts SET status = $3 WHERE id = $1 AND user_id = $2 AND status = ANY($4)`,
+		`UPDATE posts SET status = $3, publish_started_at = now(),
+		   thread_post_id = '', replies_done = 0, last_reply_id = ''
+		 WHERE id = $1 AND user_id = $2 AND status = ANY($4)`,
 		id, userID, StatusPublishing, publishableStatuses)
 	if err != nil {
 		return false, err
@@ -322,4 +331,67 @@ func (db *DB) ClearAutoDrafts(ctx context.Context, userID string) error {
 		   AND memo = ''`,
 		userID, []string{StatusGenerating, StatusPending, StatusFailed})
 	return err
+}
+
+// publishStaleAfter가 지나도록 publishing에 머문 글은 게시가 중간에
+// 끊긴 것으로 본다. 이어서 마칠 수 있다.
+const publishStaleAfter = 3 * time.Minute
+
+// ClaimForResume은 끊긴 게시를 이어서 마칠 권한을 선점한다.
+//
+// publish_started_at을 다시 찍는 것이 핵심이다. 두 요청이 동시에
+// 이어받으려 하면 하나만 통과한다.
+func (db *DB) ClaimForResume(ctx context.Context, userID string, id int64) (bool, error) {
+	tag, err := db.pool.Exec(ctx,
+		`UPDATE posts SET publish_started_at = now()
+		 WHERE id = $1 AND user_id = $2 AND status = $3
+		   AND publish_started_at < now() - $4::interval`,
+		id, userID, StatusPublishing, publishStaleAfter.String())
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+// SetPublishedBody는 본문이 올라간 직후에 그 사실을 남긴다.
+// 여기서 저장하지 않으면 다음 단계에서 끊겼을 때 본문을 또 올리게 된다.
+func (db *DB) SetPublishedBody(ctx context.Context, id int64, postID, permalink string) error {
+	_, err := db.pool.Exec(ctx,
+		`UPDATE posts SET thread_post_id = $2, thread_permalink = $3,
+		   last_reply_id = $2, replies_done = 0
+		 WHERE id = $1`,
+		id, postID, permalink)
+	return err
+}
+
+// SetReplyDone은 답글 하나가 올라갔음을 남긴다.
+func (db *DB) SetReplyDone(ctx context.Context, id int64, done int, lastReplyID string) error {
+	_, err := db.pool.Exec(ctx,
+		`UPDATE posts SET replies_done = $2, last_reply_id = $3 WHERE id = $1`,
+		id, done, lastReplyID)
+	return err
+}
+
+// ListStuckPublishing은 게시가 끊긴 채 남은 글을 찾는다.
+func (db *DB) ListStuckPublishing(ctx context.Context, userID string) ([]*Post, error) {
+	rows, err := db.pool.Query(ctx,
+		`SELECT `+postColumns+` FROM posts
+		 WHERE user_id = $1 AND status = $2
+		   AND publish_started_at < now() - $3::interval
+		 ORDER BY id DESC`,
+		userID, StatusPublishing, publishStaleAfter.String())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var posts []*Post
+	for rows.Next() {
+		p, err := scanPost(rows)
+		if err != nil {
+			return nil, err
+		}
+		posts = append(posts, p)
+	}
+	return posts, rows.Err()
 }

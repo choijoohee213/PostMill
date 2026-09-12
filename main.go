@@ -88,6 +88,7 @@ func main() {
 	mux.HandleFunc("POST /drafts/{id}/unhold", a.handleUnhold)
 	mux.HandleFunc("POST /drafts/{id}/delete", a.handleDelete)
 	mux.HandleFunc("POST /drafts/{id}/publish", a.handlePublish)
+	mux.HandleFunc("POST /drafts/{id}/resume", a.handleResumePublish)
 	mux.HandleFunc("GET /history", a.handleHistory)
 	mux.HandleFunc("GET /settings", a.handleSettings)
 	mux.HandleFunc("POST /disconnect", a.handleDisconnect)
