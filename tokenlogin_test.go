@@ -116,3 +116,19 @@ func TestTokenLogin_토큰의_주인으로_로그인된다(t *testing.T) {
 		t.Fatalf("username=%q", u.Username)
 	}
 }
+
+// assertLoginError는 로그인 화면으로 되돌려보내며 사유를 전달했는지 본다.
+func assertLoginError(t *testing.T, rec *httptest.ResponseRecorder, want string) {
+	t.Helper()
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("code=%d, 리다이렉트여야 한다. body=%q", rec.Code, rec.Body.String())
+	}
+	loc := rec.Header().Get("Location")
+	if !strings.HasPrefix(loc, "/login?error=") {
+		t.Fatalf("Location=%q", loc)
+	}
+	decoded, _ := url.QueryUnescape(loc)
+	if !strings.Contains(decoded, want) {
+		t.Fatalf("사유에 %q가 없다: %q", want, decoded)
+	}
+}

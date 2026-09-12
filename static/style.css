@@ -492,7 +492,7 @@ main {
 
 /* 로그인 화면 */
 .hero {
-  padding: 72px 0 0;
+  padding: 44px 0 24px;
   text-align: center;
 }
 
@@ -605,8 +605,6 @@ main {
 
 .link-form { margin-bottom: 22px; }
 
-.dev-login { margin-top: 22px; }
-.dev-login .btn { width: 100%; }
 
 .need-link {
   color: var(--muted);
@@ -878,3 +876,89 @@ main {
 .add-label em { font-style: normal; color: var(--muted); font-size: 13px; }
 
 .switch-form { margin-top: 8px; }
+
+.login-box {
+  max-width: 420px;
+  margin: 0 auto;
+  padding: 56px 0 0;
+}
+
+.login-box .hero-title { text-align: center; }
+.login-box .hero-sub { text-align: center; }
+.login-box textarea {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.login-note { margin-top: 14px; text-align: center; }
+
+/* 로그인 방법 선택 — 하나의 틀 안에서 고르는 세그먼트 */
+.login-choice {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 20px;
+  padding: 4px;
+  border-radius: 12px;
+  background: #e8e8ee;
+}
+
+.choice-btn {
+  flex: 1;
+  padding: 10px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+  transition: background .12s ease, color .12s ease;
+}
+
+.choice-btn.is-active {
+  background: var(--card);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .12);
+}
+
+/* 선택된 칸이 이어지는 느낌을 준다 */
+.login-panel {
+  padding-top: 2px;
+}
+
+.panel-desc {
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.panel-desc b { color: var(--text); }
+
+.login-box input[type="password"] {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font: inherit;
+}
+
+.choice-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+
+.choice-btn .ico {
+  width: 17px;
+  height: 17px;
+  flex: none;
+}

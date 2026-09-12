@@ -25,11 +25,15 @@ func (a *app) currentUser(r *http.Request) (*ThreadsUser, bool) {
 type settingsData struct {
 	Username  string
 	ExpiresAt string
+	IsAdmin   bool
 	Error     string
 }
 
 func (a *app) handleSettings(w http.ResponseWriter, r *http.Request) {
-	data := settingsData{Error: r.URL.Query().Get("error")}
+	data := settingsData{
+		Error:   r.URL.Query().Get("error"),
+		IsAdmin: a.session.userID(r) == adminUserID,
+	}
 	if u, ok := a.currentUser(r); ok {
 		data.Username = u.Username
 		data.ExpiresAt = u.ExpiresAt.Local().Format("2006년 1월 2일")

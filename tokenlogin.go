@@ -7,14 +7,15 @@ import (
 	"time"
 )
 
-// 토큰으로 로그인. 지금은 화면과 라우트에서 빠져 있다.
-//
-// 되살리려면 main.go에 POST /login/token을 등록하고 session.go의
-// isPublicPath에 같은 경로를 넣은 뒤, login.html에 입력칸을 붙이면 된다.
+// 토큰으로 로그인.
 //
 // 브라우저에 어떤 Meta 계정이 물려 있든 상관없이 들어올 수 있는 길이다.
 // 계정 센터에 여러 계정이 묶여 있으면 승인 화면이 대표 계정으로 넘어가
 // 원하는 계정으로 로그인할 수 없는 경우가 있다. 그때 쓴다.
+//
+// force_reauth=true로 다시 로그인하게 해보려 했으나 Threads OAuth는 그
+// 파라미터를 무시한다. 브라우저 세션을 우회할 다른 방법이 없어 이 길이
+// 계정을 고르는 유일한 수단이다.
 //
 // Threads 연동이 막혔을 때 앱에 들어가 고칠 수단이기도 하다.
 func (a *app) handleTokenLogin(w http.ResponseWriter, r *http.Request) {

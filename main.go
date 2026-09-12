@@ -21,10 +21,10 @@ type app struct {
 	gemini  *Gemini
 	threads *Threads
 
-	session   *session
-	appID     string
-	appSecret string
-	devUserID string // 로컬 개발용 로그인. devlogin.go 참고
+	session       *session
+	appID         string
+	appSecret     string
+	adminPassword string
 
 	testTpl *template.Template // 테스트에서 전체 템플릿 없이 렌더링하기 위해 쓴다
 }
@@ -57,22 +57,21 @@ func main() {
 	}
 
 	a := &app{
-		db:        db,
-		tpl:       tpl,
-		gemini:    NewGemini(apiKey),
-		threads:   NewThreads(),
-		session:   &session{secret: []byte(secret)},
-		appID:     os.Getenv("THREADS_APP_ID"),
-		appSecret: os.Getenv("THREADS_APP_SECRET"),
-		devUserID: os.Getenv("DEV_LOGIN_USER_ID"),
+		db:            db,
+		tpl:           tpl,
+		gemini:        NewGemini(apiKey),
+		threads:       NewThreads(),
+		session:       &session{secret: []byte(secret)},
+		appID:         os.Getenv("THREADS_APP_ID"),
+		appSecret:     os.Getenv("THREADS_APP_SECRET"),
+		adminPassword: os.Getenv("ADMIN_PASSWORD"),
 	}
 
 	mux := http.NewServeMux()
 	mux.Handle("GET /static/", http.FileServerFS(staticFS))
 	mux.HandleFunc("GET /login", a.handleLoginForm)
-	mux.HandleFunc("POST /login/start", a.handleLoginStart)
-	mux.HandleFunc("GET /login/callback", a.handleLoginCallback)
-	mux.HandleFunc("POST /login/dev", a.handleDevLogin)
+	mux.HandleFunc("POST /login/token", a.handleTokenLogin)
+	mux.HandleFunc("POST /login/admin", a.handleAdminLogin)
 	mux.HandleFunc("POST /logout", a.handleLogout)
 	mux.HandleFunc("GET /{$}", a.handleList)
 	mux.HandleFunc("GET /new", a.handleNewForm)

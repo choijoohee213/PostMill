@@ -118,7 +118,7 @@ func TestPublishHandler_토큰이_없으면_발행하지_않는다(t *testing.T)
 	rec := httptest.NewRecorder()
 	a.handlePublish(rec, a.signedRequest(t, testUser, "/publish", id))
 
-	if !strings.Contains(rec.Body.String(), "다시 로그인") {
+	if !strings.Contains(rec.Body.String(), "토큰으로 로그인") {
 		t.Fatalf("안내 문구가 없다: %q", rec.Body.String())
 	}
 	p, _ := a.db.GetPost(ctx, testUser, id)

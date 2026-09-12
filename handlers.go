@@ -443,7 +443,8 @@ func (a *app) handlePublish(w http.ResponseWriter, r *http.Request) {
 
 	u, ok := a.currentUser(r)
 	if !ok {
-		a.renderEdit(w, r, p, "Threads 계정 정보를 찾을 수 없어요. 다시 로그인해주세요.")
+		a.renderEdit(w, r, p,
+			"Threads 계정이 연결되지 않아 게시할 수 없어요. 토큰으로 로그인해주세요.")
 		return
 	}
 

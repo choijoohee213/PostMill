@@ -138,7 +138,7 @@ func TestRequireAuth_로그인_경로와_정적파일은_열려있다(t *testing
 	reached := 0
 	handler := a.requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { reached++ }))
 
-	open := []string{"/login", "/login/start", "/login/callback", "/static/style.css"}
+	open := []string{"/login", "/login/token", "/login/admin", "/static/style.css"}
 	for _, path := range open {
 		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, path, nil))
 	}
@@ -147,16 +147,18 @@ func TestRequireAuth_로그인_경로와_정적파일은_열려있다(t *testing
 	}
 }
 
-func TestRequireAuth_토큰_로그인_경로는_닫혀있다(t *testing.T) {
-	// 화면에서 뺐으므로 열려 있으면 안 된다.
+// 걷어낸 로그인 경로들은 더 이상 열려 있으면 안 된다.
+func TestRequireAuth_사라진_로그인_경로는_닫혀있다(t *testing.T) {
 	a := &app{session: testSession()}
-	rec := httptest.NewRecorder()
-	reached := false
-	a.requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		reached = true
-	})).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/login/token", nil))
+	for _, path := range []string{"/login/start", "/login/callback", "/login/dev"} {
+		reached := false
+		rec := httptest.NewRecorder()
+		a.requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			reached = true
+		})).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 
-	if reached {
-		t.Fatal("로그인 없이 통과했다")
+		if reached {
+			t.Errorf("%s 가 로그인 없이 통과했다", path)
+		}
 	}
 }
