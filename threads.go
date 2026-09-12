@@ -367,13 +367,20 @@ const threadsAuthorizeURL = "https://www.threads.com/oauth/authorize"
 const threadsScopes = "threads_basic,threads_content_publish,threads_manage_replies"
 
 // AuthorizeURL은 사용자를 보낼 승인 화면 주소를 만든다.
-func AuthorizeURL(appID, redirectURI, state string) string {
+//
+// forceReauth를 켜면 브라우저에 남은 Meta 세션을 무시하고 다시 로그인하게
+// 한다. 인스타 계정이 여러 개 묶여 있으면 승인이 대표 계정으로 즉시
+// 처리되어 계정을 고를 틈이 없는데, 그때 쓰는 길이다.
+func AuthorizeURL(appID, redirectURI, state string, forceReauth bool) string {
 	q := url.Values{}
 	q.Set("client_id", appID)
 	q.Set("redirect_uri", redirectURI)
 	q.Set("scope", threadsScopes)
 	q.Set("response_type", "code")
 	q.Set("state", state)
+	if forceReauth {
+		q.Set("force_reauth", "true")
+	}
 	return threadsAuthorizeURL + "?" + q.Encode()
 }
 

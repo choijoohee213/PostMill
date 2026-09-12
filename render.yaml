@@ -8,6 +8,8 @@ services:
     region: ohio
     buildCommand: go build -o postmill .
     startCommand: ./postmill
+    # main에 머지되면 자동으로 다시 빌드한다. 기본값이지만 명시해 둔다.
+    autoDeploy: true
     # healthCheckPath를 두지 않는다. 주기적인 헬스 체크가 인바운드 트래픽으로
     # 잡히면 무료 인스턴스가 잠들지 않아 월 750시간 한도를 다 써버릴 수 있다.
     envVars:

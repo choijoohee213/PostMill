@@ -64,7 +64,11 @@ func (a *app) handleLoginStart(w http.ResponseWriter, r *http.Request) {
 		Expires:  time.Now().Add(10 * time.Minute),
 	})
 
-	http.Redirect(w, r, AuthorizeURL(a.appID, publicBase(r)+callbackPath, state), http.StatusSeeOther)
+	// switch=1이면 계정을 다시 고르게 한다.
+	forceReauth := r.FormValue("switch") == "1"
+	http.Redirect(w, r,
+		AuthorizeURL(a.appID, publicBase(r)+callbackPath, state, forceReauth),
+		http.StatusSeeOther)
 }
 
 // handleLoginCallback은 승인 화면에서 돌아온 요청을 처리한다.

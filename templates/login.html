@@ -9,29 +9,12 @@
   <form method="post" action="/login/start">
     <button class="btn btn-primary btn-block" type="submit">Threads로 로그인</button>
   </form>
-  <p class="hint">비밀번호는 Threads 화면에서 입력하고, 이 앱은 보지 않습니다.</p>
 
-  <details class="fallback">
-    <summary>다른 계정으로 로그인이 안 되나요?</summary>
-    <p class="hint">
-      인스타 계정이 여러 개 묶여 있으면 승인 화면이 대표 계정으로 넘어가
-      원하는 계정으로 로그인되지 않을 수 있어요. 그때는 토큰으로 들어오세요.
-    </p>
-    <ol class="steps">
-      <li><a href="https://developers.facebook.com/apps/{{.AppID}}/use_cases/" target="_blank" rel="noopener">Meta 개발자 대시보드</a> → 이용 사례 → Threads API 맞춤 설정</li>
-      <li>아래로 내려 <b>사용자 토큰 생성기</b>에서 원하는 계정의 <b>토큰 생성</b></li>
-      <li>나온 값을 아래에 붙여넣기 (1시간 안에)</li>
-    </ol>
-    <form class="form" method="post" action="/login/token">
-      <label class="field">
-        <span class="label">액세스 토큰</span>
-        <textarea name="token" rows="4" placeholder="TH..." required></textarea>
-      </label>
-      <div class="actions">
-        <button class="btn" type="submit">토큰으로 로그인</button>
-      </div>
-    </form>
-  </details>
+  <form method="post" action="/login/start" class="switch-form">
+    <input type="hidden" name="switch" value="1">
+    <button class="btn btn-block" type="submit">다른 계정으로 로그인</button>
+  </form>
+  <p class="hint">비밀번호는 Threads 화면에서 입력하고, 이 앱은 보지 않습니다.</p>
 
   {{if .DevLogin}}
   <form method="post" action="/login/dev" class="dev-login">

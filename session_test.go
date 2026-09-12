@@ -146,3 +146,17 @@ func TestRequireAuth_로그인_경로와_정적파일은_열려있다(t *testing
 		t.Fatalf("%d개만 통과했다. %d개여야 한다", reached, len(open))
 	}
 }
+
+func TestRequireAuth_토큰_로그인_경로는_닫혀있다(t *testing.T) {
+	// 화면에서 뺐으므로 열려 있으면 안 된다.
+	a := &app{session: testSession()}
+	rec := httptest.NewRecorder()
+	reached := false
+	a.requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reached = true
+	})).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/login/token", nil))
+
+	if reached {
+		t.Fatal("로그인 없이 통과했다")
+	}
+}

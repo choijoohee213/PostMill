@@ -1,5 +1,7 @@
 package main
 
+// 토큰 로그인은 지금 화면과 라우트에서 빠져 있다. 되살릴 때를 위해
+// 핸들러 자체의 동작은 그대로 검증해 둔다.
 import (
 	"encoding/json"
 	"fmt"
