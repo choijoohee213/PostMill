@@ -5,7 +5,7 @@
 {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
 
 {{if eq .Post.Status "published"}}
-<p class="notice">이미 발행된 글입니다.{{if .Post.ThreadPermalink}} <a href="{{.Post.ThreadPermalink}}" target="_blank" rel="noopener">스레드에서 보기</a>{{end}}</p>
+<p class="notice">이미 게시한 글이에요.{{if .Post.ThreadPermalink}} <a href="{{.Post.ThreadPermalink}}" target="_blank" rel="noopener">스레드에서 보기</a>{{end}}</p>
 {{end}}
 
 <!-- 1. 상품과 링크 -->
@@ -24,7 +24,7 @@
       <span class="label">제휴 링크</span>
       <input type="url" name="affiliate_link" value="{{.Post.AffiliateLink}}"
              placeholder="https://" inputmode="url">
-      <span class="hint">상품을 찾아 제휴 링크를 만든 뒤 붙여넣으세요. 발행 시 마지막 답글로 올라갑니다.</span>
+      <span class="hint">상품을 찾아 제휴 링크를 만든 뒤 붙여넣으세요. 게시할 때 마지막 답글로 올라가요.</span>
     </label>
     <div class="actions">
       <button class="btn btn-small" type="submit">링크 저장</button>
@@ -32,77 +32,111 @@
   </form>
 </section>
 
-<!-- 2. 미리보기 (연필을 누르면 그 자리에서 고친다) -->
+<!-- 2. 게시글 미리보기 (연필을 누르면 그 자리에서 고친다) -->
 <section class="step">
-  <h2 class="step-title"><span class="step-num">2</span> 이렇게 발행됩니다</h2>
+  <h2 class="step-title"><span class="step-num">2</span> 게시글 미리보기</h2>
+  <p class="step-hint">연필을 눌러 그 자리에서 고칠 수 있어요.</p>
 
   <form method="post" action="/drafts/{{.Post.ID}}" id="edit-form">
     <div class="thread">
-      <article class="thread-post">
-        <header class="thread-head">
-          <span class="thread-who">게시물</span>
-          <button class="icon-btn" type="button" data-edit="body" title="본문 수정" aria-label="본문 수정">✎</button>
-        </header>
-        <p class="disclosure">{{.Disclosure}}</p>
 
-        <div data-view="body">
-          <p class="thread-body" id="preview-body">{{.Post.Body}}</p>
+      <article class="tpost">
+        <div class="tpost-rail">
+          <span class="tavatar">{{.Initial}}</span>
+          <span class="trail-line"></span>
         </div>
-        <div data-editor="body" hidden>
-          <textarea name="body" id="body" rows="6" data-room="{{.Room}}">{{.Post.Body}}</textarea>
-          <span class="counter" id="counter" data-room="{{.Room}}">{{.Used}} / {{.Room}}</span>
-        </div>
-      </article>
-
-      <article class="thread-post thread-reply" id="preview-detail-card"{{if not .Post.Detail}} data-empty="1"{{end}}>
-        <header class="thread-head">
-          <span class="thread-who">답글 1</span>
-          <button class="icon-btn" type="button" data-edit="detail" title="답글 수정" aria-label="답글 수정">✎</button>
-        </header>
-
-        <div data-view="detail">
-          <p class="thread-body" id="preview-detail">{{.Post.Detail}}</p>
-          <p class="thread-empty"{{if .Post.Detail}} hidden{{end}}>비어 있습니다. 연필을 눌러 채우거나 그대로 두면 답글 없이 발행됩니다.</p>
-        </div>
-        <div data-editor="detail" hidden>
-          <textarea name="detail" id="detail" rows="6" data-room="{{.DetailLimit}}">{{.Post.Detail}}</textarea>
-          <span class="counter" id="detail-counter" data-room="{{.DetailLimit}}">{{.DetailUsed}} / {{.DetailLimit}}</span>
+        <div class="tpost-main">
+          <div class="tpost-top">
+            <span class="thandle">{{.Handle}}</span>
+            <button class="pencil" type="button" data-edit="body" title="본문 수정" aria-label="본문 수정">✎</button>
+          </div>
+          <p class="disclosure">{{.Disclosure}}</p>
+          <div data-view="body">
+            <p class="tbody" id="preview-body">{{.Post.Body}}</p>
+          </div>
+          <div data-editor="body" hidden>
+            <textarea name="body" id="body" rows="6" data-room="{{.Room}}">{{.Post.Body}}</textarea>
+            <span class="counter" id="counter" data-room="{{.Room}}">{{.Used}} / {{.Room}}</span>
+          </div>
         </div>
       </article>
 
-      <article class="thread-post thread-reply">
-        <header class="thread-head">
-          <span class="thread-who">답글 2</span>
-        </header>
-        {{if .Reply}}
-          <p class="thread-body thread-link">{{.Reply}}</p>
-        {{else}}
-          <p class="thread-empty">제휴 링크를 넣으면 여기 올라갑니다.</p>
-        {{end}}
+      <article class="tpost" id="preview-detail-card"{{if not .Post.Detail}} data-empty="1"{{end}}>
+        <div class="tpost-rail">
+          <span class="tavatar tavatar-sm">{{.Initial}}</span>
+          <span class="trail-line"></span>
+        </div>
+        <div class="tpost-main">
+          <div class="tpost-top">
+            <span class="thandle">{{.Handle}}</span>
+            <button class="pencil" type="button" data-edit="detail" title="답글 1 수정" aria-label="답글 1 수정">✎</button>
+          </div>
+          <div data-view="detail">
+            <p class="tbody" id="preview-detail">{{.Post.Detail}}</p>
+            <p class="tempty"{{if .Post.Detail}} hidden{{end}}>비어 있어요. 이대로 두면 이 답글은 올라가지 않아요.</p>
+          </div>
+          <div data-editor="detail" hidden>
+            <textarea name="detail" id="detail" rows="5" data-room="{{.DetailLimit}}">{{.Post.Detail}}</textarea>
+            <span class="counter" id="detail-counter" data-room="{{.DetailLimit}}">{{.DetailUsed}} / {{.DetailLimit}}</span>
+          </div>
+        </div>
       </article>
-    </div>
 
-    <div class="actions edit-actions" id="edit-actions" hidden>
-      <button class="btn" type="button" data-cancel>되돌리기</button>
-      <button class="btn btn-primary" type="submit">수정 내용 저장</button>
+      <article class="tpost" id="preview-detail2-card"{{if not .Post.Detail2}} data-empty="1"{{end}}>
+        <div class="tpost-rail">
+          <span class="tavatar tavatar-sm">{{.Initial}}</span>
+          <span class="trail-line"></span>
+        </div>
+        <div class="tpost-main">
+          <div class="tpost-top">
+            <span class="thandle">{{.Handle}}</span>
+            <button class="pencil" type="button" data-edit="detail2" title="답글 2 수정" aria-label="답글 2 수정">✎</button>
+          </div>
+          <div data-view="detail2">
+            <p class="tbody" id="preview-detail2">{{.Post.Detail2}}</p>
+            <p class="tempty"{{if .Post.Detail2}} hidden{{end}}>비어 있어요. 이대로 두면 이 답글은 올라가지 않아요.</p>
+          </div>
+          <div data-editor="detail2" hidden>
+            <textarea name="detail2" id="detail2" rows="5" data-room="{{.DetailLimit}}">{{.Post.Detail2}}</textarea>
+            <span class="counter" id="detail2-counter" data-room="{{.DetailLimit}}">{{.Detail2Used}} / {{.DetailLimit}}</span>
+          </div>
+        </div>
+      </article>
+
+      <article class="tpost tpost-last">
+        <div class="tpost-rail">
+          <span class="tavatar tavatar-sm">{{.Initial}}</span>
+        </div>
+        <div class="tpost-main">
+          <div class="tpost-top">
+            <span class="thandle">{{.Handle}}</span>
+          </div>
+          {{if .Reply}}
+            <p class="tbody tlink">{{.Reply}}</p>
+          {{else}}
+            <p class="tempty">제휴 링크를 넣으면 여기 올라가요.</p>
+          {{end}}
+        </div>
+      </article>
+
     </div>
   </form>
 </section>
 
-<!-- 3. 발행 -->
+<!-- 3. 스레드에 게시 -->
 <section class="step">
-  <h2 class="step-title"><span class="step-num">3</span> 발행</h2>
+  <h2 class="step-title"><span class="step-num">3</span> 스레드에 게시</h2>
 
   {{if ne .Post.Status "published"}}
   <form method="post" action="/drafts/{{.Post.ID}}/publish" data-publish>
-    <button class="btn btn-primary btn-block" type="submit"{{if or .Error (not .Post.AffiliateLink)}} disabled{{end}}>발행</button>
+    <button class="btn btn-primary btn-block" type="submit"{{if or .Error (not .Post.AffiliateLink)}} disabled{{end}}>스레드에 게시</button>
   </form>
-  {{if not .Post.AffiliateLink}}<p class="hint">제휴 링크를 넣으면 발행할 수 있습니다.</p>{{end}}
+  {{if not .Post.AffiliateLink}}<p class="hint">제휴 링크를 넣으면 게시할 수 있어요.</p>{{end}}
   {{end}}
 
   <div class="secondary-actions">
     <form method="post" action="/drafts/{{.Post.ID}}/refresh">
-      <button class="btn" type="submit">다시 만들기</button>
+      <button class="btn" type="submit">재생성</button>
     </form>
 
     {{if eq .Post.Status "held"}}

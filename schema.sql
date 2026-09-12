@@ -41,3 +41,6 @@ CREATE INDEX IF NOT EXISTS posts_user_status_idx
 
 -- AI가 고른 상품 이름. 사용자가 이 이름으로 상품을 찾아 제휴 링크를 만든다.
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS product_name text NOT NULL DEFAULT '';
+
+-- 두 번째 답글. 게시물 → 답글1 → 답글2 → 링크 순으로 이어진다.
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS detail2 text NOT NULL DEFAULT '';

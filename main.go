@@ -78,6 +78,7 @@ func main() {
 	mux.HandleFunc("GET /new", a.handleNewForm)
 	mux.HandleFunc("POST /new", a.handleNewSubmit)
 	mux.HandleFunc("POST /auto", a.handleAuto)
+	mux.HandleFunc("POST /auto/one", a.handleAutoOne)
 	mux.HandleFunc("POST /drafts/{id}/refresh", a.handleRefresh)
 	mux.HandleFunc("POST /drafts/{id}/link", a.handleSaveLink)
 	mux.HandleFunc("POST /drafts/{id}/retry", a.handleRetry)

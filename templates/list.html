@@ -43,7 +43,7 @@
         <summary>
           <div class="card-head">
             <span class="badge badge-{{.Affiliate}}">{{affiliateKo .Affiliate}}</span>
-            {{if eq .Status "failed"}}<span class="badge badge-failed">발행 실패</span>{{end}}
+            {{if eq .Status "failed"}}<span class="badge badge-failed">게시 실패</span>{{end}}
             {{if and (eq .Status "published") .ErrorMsg}}<span class="badge badge-failed">답글 실패</span>{{end}}
             {{if not .AffiliateLink}}<span class="badge badge-warn">링크 없음</span>{{end}}
             <time>{{formatTime .CreatedAt}}</time>
@@ -72,10 +72,10 @@
         {{if ne .Status "published"}}
           {{if .AffiliateLink}}
           <form method="post" action="/drafts/{{.ID}}/publish" data-publish>
-            <button class="btn btn-small btn-primary" type="submit">발행</button>
+            <button class="btn btn-small btn-primary" type="submit">스레드에 게시</button>
           </form>
           {{else}}
-          <span class="need-link">발행하려면 링크가 필요해요</span>
+          <span class="need-link">게시하려면 링크가 필요해요</span>
           {{end}}
         {{else if .ThreadPermalink}}
           <a class="btn btn-small" href="{{.ThreadPermalink}}" target="_blank" rel="noopener">스레드에서 보기</a>
@@ -85,7 +85,19 @@
   </li>
   {{end}}
 </ul>
-{{else}}
+{{end}}
+
+{{if .Missing}}
+<form class="add-card" method="post" action="/auto/one">
+  <input type="hidden" name="affiliate" value="{{.LastAff}}">
+  <button type="submit">
+    <span class="add-plus">+</span>
+    <span class="add-label">초안 한 장 더 채우기<br><em>{{.BatchSize}}장 중 {{.Missing}}장이 비어 있어요</em></span>
+  </button>
+</form>
+{{end}}
+
+{{if not .Posts}}
 <p class="empty">{{if eq .ActiveTab "review"}}위 버튼으로 초안을 만들어보세요.{{else}}아직 글이 없습니다.{{end}}</p>
 {{end}}
 

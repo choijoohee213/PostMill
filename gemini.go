@@ -298,7 +298,7 @@ const autoSystemPrompt = `너는 스레드(Threads)에 제휴 마케팅 글을 �
   종류로만 적는다. 사용자가 이 이름으로 검색해서 직접 상품을 고를 것이다.
 - 사람들이 "아 이거 나도 불편했는데" 할 만한, 사소한 불편을 해결하는 물건이 좋다.
 
-출력 형식은 세 부분이고 사이에 --- 만 있는 줄을 넣는다.
+출력 형식은 네 부분이고 사이에 --- 만 있는 줄을 넣는다.
 
 [1] 상품 이름 한 줄. 검색어로 쓸 수 있게 짧게.
 ---
@@ -306,10 +306,15 @@ const autoSystemPrompt = `너는 스레드(Threads)에 제휴 마케팅 글을 �
     구성: 겪던 불편 한 줄 → 이걸로 뭐가 달라졌는지 한 줄 → 질문 한 줄.
     장점은 딱 하나만 담는다.
 ---
-[3] 디테일. 답글로 이어 붙일 내용. 3~5줄, 120자 안팎.
+[3] 첫 번째 답글. 2~4줄, 100자 안팎.
     본문에서 안 쓴 이야기를 푼다. 본문에 쓴 말을 되풀이하지 마라.
+---
+[4] 두 번째 답글. 2~4줄, 100자 안팎.
+    3번에 이어지는 다른 이야기를 쓴다. 3번과 다른 각도여야 한다.
+    예를 들어 3번이 쓰는 느낌이면 4번은 관리나 보관 같은 다른 면을 쓴다.
+    혼잣말을 덧붙이듯 자연스럽게 이어라.
 
-말투 (2와 3 모두):
+말투 (2, 3, 4 모두):
 - 반말. 친구한테 카톡하듯. 직접 써본 1인칭으로 쓴다.
 - 한 줄은 짧게 끊고 줄바꿈을 자주 넣는다.
 - "그리고", "또", "게다가", "무엇보다" 로 항목을 이어붙이지 마라.
@@ -323,7 +328,7 @@ const autoSystemPrompt = `너는 스레드(Threads)에 제휴 마케팅 글을 �
 - 가격, 할인율, 브랜드명, 모델명, 성능 수치, 용량, 배터리 시간을 쓰지 마라.
   상품을 네가 골랐으므로 확인된 수치가 없다. 느낌과 상황으로만 쓴다.
 
-다른 말 없이 세 부분만 출력한다.`
+다른 말 없이 네 부분만 출력한다.`
 
 // AutoDraft는 AI가 상품까지 고른 초안이다.
 type AutoDraft struct {
@@ -331,6 +336,7 @@ type AutoDraft struct {
 	ProductURL  string
 	Body        string
 	Detail      string
+	Detail2     string
 }
 
 // SuggestDraft는 상품 선정부터 본문까지 한 번에 만든다.
@@ -376,15 +382,16 @@ func (g *Gemini) suggestOnce(ctx context.Context, affiliate string, avoid []stri
 		return nil, err
 	}
 
-	parts := splitParts(raw, 3)
-	if len(parts) < 3 {
-		return nil, retryableError{fmt.Errorf("출력이 세 부분으로 나뉘지 않았다")}
+	parts := splitParts(raw, 4)
+	if len(parts) < 4 {
+		return nil, retryableError{fmt.Errorf("출력이 네 부분으로 나뉘지 않았다")}
 	}
 
 	d := &AutoDraft{
 		ProductName: firstLine(parts[0]),
 		Body:        parts[1],
 		Detail:      parts[2],
+		Detail2:     parts[3],
 	}
 	if d.ProductName == "" || d.Body == "" {
 		return nil, retryableError{fmt.Errorf("상품 이름이나 본문이 비었다")}
@@ -392,8 +399,11 @@ func (g *Gemini) suggestOnce(ctx context.Context, affiliate string, avoid []stri
 	if n := CharCount(d.Body); n > bodyMaxChars {
 		return nil, retryableError{fmt.Errorf("본문이 %d자로 상한 %d자를 넘는다", n, bodyMaxChars)}
 	}
-	if n := CharCount(d.Detail); n > detailMaxChars {
-		return nil, retryableError{fmt.Errorf("디테일이 %d자로 상한 %d자를 넘는다", n, detailMaxChars)}
+	for i, t := range []string{d.Detail, d.Detail2} {
+		if n := CharCount(t); n > detailMaxChars {
+			return nil, retryableError{
+				fmt.Errorf("답글 %d이 %d자로 상한 %d자를 넘는다", i+1, n, detailMaxChars)}
+		}
 	}
 	d.ProductURL = SearchURL(affiliate, d.ProductName)
 	return d, nil

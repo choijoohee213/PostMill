@@ -717,3 +717,166 @@ main {
 }
 
 .edit-actions { margin-top: 14px; }
+
+/* 스레드처럼 보이는 미리보기 */
+.step-hint {
+  margin: -4px 0 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.thread {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+  padding: 4px 14px;
+}
+
+.tpost {
+  display: flex;
+  gap: 10px;
+  padding: 12px 0;
+}
+
+.tpost-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: none;
+  width: 34px;
+}
+
+.tavatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.tavatar-sm {
+  width: 26px;
+  height: 26px;
+  font-size: 12px;
+}
+
+/* 답글이 이어지는 세로선 */
+.trail-line {
+  flex: 1;
+  width: 2px;
+  margin-top: 6px;
+  border-radius: 1px;
+  background: var(--line);
+}
+
+.tpost-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.tpost-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.thandle {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.pencil {
+  margin-left: auto;
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.pencil-save {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.tbody {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 15px;
+}
+
+.tlink {
+  color: #1b64da;
+  word-break: break-all;
+}
+
+.tempty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.tpost[data-empty="1"] { opacity: .55; }
+
+.tpost-main textarea {
+  width: 100%;
+  margin-top: 4px;
+  padding: 10px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  font: inherit;
+  font-size: 15px;
+  resize: vertical;
+}
+
+.thread .disclosure {
+  margin: 0 0 10px;
+  padding-bottom: 8px;
+}
+
+/* 한 장 더 채우기 카드 */
+.add-card { margin-top: 10px; }
+
+.add-card button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 16px 14px;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.add-plus {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  font-size: 18px;
+}
+
+.add-label { font-size: 14px; color: var(--text); }
+.add-label em { font-style: normal; color: var(--muted); font-size: 13px; }
