@@ -876,3 +876,5 @@ main {
 
 .add-label { font-size: 14px; color: var(--text); }
 .add-label em { font-style: normal; color: var(--muted); font-size: 13px; }
+
+.switch-form { margin-top: 8px; }

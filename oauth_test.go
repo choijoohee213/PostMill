@@ -22,7 +22,7 @@ func oauthApp(t *testing.T) *app {
 }
 
 func TestAuthorizeURL_필수_파라미터를_담는다(t *testing.T) {
-	raw := AuthorizeURL("app-1", "https://example.com/login/callback", "st4te")
+	raw := AuthorizeURL("app-1", "https://example.com/login/callback", "st4te", false)
 	u, err := url.Parse(raw)
 	if err != nil {
 		t.Fatal(err)
@@ -146,5 +146,34 @@ func assertLoginError(t *testing.T, rec *httptest.ResponseRecorder, want string)
 	decoded, _ := url.QueryUnescape(loc)
 	if !strings.Contains(decoded, want) {
 		t.Fatalf("사유에 %q가 없다: %q", want, decoded)
+	}
+}
+
+func TestAuthorizeURL_계정_전환은_재인증을_건다(t *testing.T) {
+	plain, _ := url.Parse(AuthorizeURL("app-1", "https://e/cb", "s", false))
+	if plain.Query().Has("force_reauth") {
+		t.Error("평소 로그인에까지 재인증이 걸렸다")
+	}
+
+	sw, _ := url.Parse(AuthorizeURL("app-1", "https://e/cb", "s", true))
+	if sw.Query().Get("force_reauth") != "true" {
+		t.Errorf("force_reauth=%q", sw.Query().Get("force_reauth"))
+	}
+}
+
+func TestLoginStart_switch를_넘기면_재인증_주소로_보낸다(t *testing.T) {
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "https://app.example/login/start",
+		strings.NewReader("switch=1"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.Header.Set("X-Forwarded-Proto", "https")
+	oauthApp(t).handleLoginStart(rec, r)
+
+	u, err := url.Parse(rec.Header().Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Query().Get("force_reauth") != "true" {
+		t.Fatalf("Location=%q", rec.Header().Get("Location"))
 	}
 }
