@@ -113,6 +113,7 @@ func isPublicPath(path string) bool {
 	return path == "/login" ||
 		path == "/login/start" ||
 		path == "/login/dev" ||
+		path == "/login/token" ||
 		path == callbackPath ||
 		strings.HasPrefix(path, "/static/")
 }
