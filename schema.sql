@@ -44,3 +44,10 @@ ALTER TABLE posts ADD COLUMN IF NOT EXISTS product_name text NOT NULL DEFAULT ''
 
 -- 두 번째 답글. 게시물 → 답글1 → 답글2 → 링크 순으로 이어진다.
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS detail2 text NOT NULL DEFAULT '';
+
+-- 게시 진행 상태. 요청이 중간에 끊겨도 이어서 마칠 수 있게 남긴다.
+-- 이게 없으면 어디까지 올라갔는지 알 수 없어 같은 글을 다시 올리게 된다.
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS thread_post_id text NOT NULL DEFAULT '';
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS replies_done int NOT NULL DEFAULT 0;
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS last_reply_id text NOT NULL DEFAULT '';
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS publish_started_at timestamptz;

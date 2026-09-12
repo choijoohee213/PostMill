@@ -174,8 +174,12 @@ func (t *Threads) containerStatus(ctx context.Context, token, containerID string
 	return out.Status, out.ErrorMessage, nil
 }
 
-// publishText는 컨테이너를 만들고, 준비될 때까지 기다린 뒤 발행한다.
-func (t *Threads) publishText(ctx context.Context, token, text, replyTo string) (string, error) {
+// PublishText는 컨테이너를 만들고, 준비될 때까지 기다린 뒤 발행한다.
+// replyTo가 비어 있지 않으면 그 글에 대한 답글이 된다.
+//
+// 사슬을 잇는 일은 이 함수가 하지 않는다. 각 단계 결과를 DB에 남겨야
+// 중간에 끊겨도 이어서 마칠 수 있으므로, 순서는 앱이 관리한다.
+func (t *Threads) PublishText(ctx context.Context, token, text, replyTo string) (string, error) {
 	containerID, err := t.createContainer(ctx, token, text, replyTo)
 	if err != nil {
 		return "", err
@@ -186,65 +190,8 @@ func (t *Threads) publishText(ctx context.Context, token, text, replyTo string) 
 	return t.publishContainer(ctx, token, containerID)
 }
 
-// PublishResult는 발행 결과다. 답글 실패는 본문 발행을 무효로 만들지 않는다.
-type PublishResult struct {
-	PostID    string
-	Permalink string
-	ReplyErr  error // 본문은 올라갔지만 링크 답글에 실패한 경우
-}
-
-// Publish는 본문을 올리고, 디테일과 링크를 답글로 이어 단다.
-//
-// 본문 → 디테일 답글 → 링크 답글 순으로 사슬처럼 이어진다. 디테일이
-// 비어 있으면 링크를 본문에 바로 단다.
-//
-// 본문 발행에 성공한 뒤 답글이 실패하면 ReplyErr에 담아 반환한다.
-// 이때 게시물은 이미 스레드에 올라가 있으므로 실패로 되돌리면 안 된다.
-// 되돌리면 사용자가 다시 발행을 눌러 같은 글이 두 번 올라간다.
-func (t *Threads) Publish(ctx context.Context, token, body string, details []string, replyText string) (*PublishResult, error) {
-	postID, err := t.publishText(ctx, token, body, "")
-	if err != nil {
-		return nil, err
-	}
-
-	res := &PublishResult{PostID: postID}
-
-	// 답글을 차례로 이어 달고, 링크는 사슬의 끝에 단다.
-	// 중간 답글이 실패해도 멈추지 않는다. 마지막 성공 지점에 이어 붙인다.
-	parent := postID
-	addErr := func(label string, err error) {
-		e := fmt.Errorf("%s: %w", label, err)
-		if res.ReplyErr == nil {
-			res.ReplyErr = e
-		} else {
-			res.ReplyErr = fmt.Errorf("%v, %w", res.ReplyErr, e)
-		}
-	}
-
-	for i, d := range details {
-		if strings.TrimSpace(d) == "" {
-			continue
-		}
-		id, err := t.publishText(ctx, token, d, parent)
-		if err != nil {
-			addErr(fmt.Sprintf("답글 %d", i+1), err)
-			continue
-		}
-		parent = id
-	}
-
-	if _, err := t.publishText(ctx, token, replyText, parent); err != nil {
-		addErr("링크 답글", err)
-	}
-
-	// 퍼머링크 조회에 실패해도 발행은 성공이다. 링크만 비워둔다.
-	if link, err := t.permalink(ctx, token, postID); err == nil {
-		res.Permalink = link
-	}
-	return res, nil
-}
-
-func (t *Threads) permalink(ctx context.Context, token, postID string) (string, error) {
+// Permalink는 올라간 글의 주소를 조회한다.
+func (t *Threads) Permalink(ctx context.Context, token, postID string) (string, error) {
 	u := fmt.Sprintf("%s%s?fields=permalink&access_token=%s",
 		t.BaseURL, postID, url.QueryEscape(token))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
