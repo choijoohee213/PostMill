@@ -88,6 +88,7 @@ func (a *app) handleLoginForm(w http.ResponseWriter, r *http.Request) {
 	a.render(w, "login.html", map[string]any{
 		"Error":    r.URL.Query().Get("error"),
 		"DevLogin": a.devLoginEnabled(r),
+		"Admin":    a.adminEnabled(),
 		"AppID":    a.appID,
 	})
 }
@@ -113,5 +114,6 @@ func isPublicPath(path string) bool {
 	return path == "/login" ||
 		path == "/login/dev" ||
 		path == "/login/token" ||
+		path == "/login/admin" ||
 		strings.HasPrefix(path, "/static/")
 }
