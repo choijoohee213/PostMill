@@ -395,3 +395,11 @@ func TestPublish_중간_답글이_실패해도_링크는_올라간다(t *testing
 		t.Fatal("링크 답글을 시도조차 하지 않았다")
 	}
 }
+
+func TestAuthorizeURL_리다이렉트되지_않는_주소를_쓴다(t *testing.T) {
+	// threads.net은 www.threads.com으로 301된다. 모바일에서 그 한 번의
+	// 중간 이동에 앱이 끼어들어 흐름이 끊긴다.
+	if !strings.HasPrefix(threadsAuthorizeURL, "https://www.threads.com/") {
+		t.Fatalf("승인 주소가 %q다. 최종 주소를 써야 한다", threadsAuthorizeURL)
+	}
+}

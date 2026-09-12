@@ -23,13 +23,17 @@ const (
 // Threads는 Graph API를 표준 net/http로 호출한다.
 type Threads struct {
 	HTTP    *http.Client
-	BaseURL string // 테스트에서 가짜 서버를 가리키기 위해 주입할 수 있다
+	BaseURL string // 그래프 API. 테스트에서 가짜 서버를 가리키기 위해 주입할 수 있다
+
+	// 토큰 발급·갱신은 그래프 API와 호스트가 달라 따로 둔다.
+	TokenURL string
 }
 
 func NewThreads() *Threads {
 	return &Threads{
-		HTTP:    &http.Client{Timeout: 30 * time.Second},
-		BaseURL: threadsAPI,
+		HTTP:     &http.Client{Timeout: 30 * time.Second},
+		BaseURL:  threadsAPI,
+		TokenURL: threadsTokenAPI,
 	}
 }
 
@@ -272,7 +276,7 @@ const refreshWindow = 7 * 24 * time.Hour
 
 // RefreshToken은 장기 토큰을 갱신하고 새 토큰과 만료 시각을 반환한다.
 func (t *Threads) RefreshToken(ctx context.Context, token string) (string, time.Time, error) {
-	return t.refreshAt(ctx, threadsTokenAPI, token)
+	return t.refreshAt(ctx, t.TokenURL, token)
 }
 
 // refreshAt은 갱신 엔드포인트를 인자로 받는다. 이 엔드포인트는 BaseURL과
@@ -314,7 +318,7 @@ func (t *Threads) refreshAt(ctx context.Context, base, token string) (string, ti
 // ExchangeToken은 대시보드에서 받은 1시간짜리 단기 토큰을
 // 60일짜리 장기 토큰으로 교환한다.
 func (t *Threads) ExchangeToken(ctx context.Context, appSecret, shortToken string) (string, time.Time, error) {
-	return t.exchangeAt(ctx, threadsTokenAPI, appSecret, shortToken)
+	return t.exchangeAt(ctx, t.TokenURL, appSecret, shortToken)
 }
 
 func (t *Threads) exchangeAt(ctx context.Context, base, appSecret, shortToken string) (string, time.Time, error) {
@@ -352,7 +356,11 @@ func (t *Threads) exchangeAt(ctx context.Context, base, appSecret, shortToken st
 }
 
 // threadsAuthorizeURL은 사용자가 권한을 승인하는 화면이다.
-const threadsAuthorizeURL = "https://threads.net/oauth/authorize"
+//
+// threads.net은 www.threads.com으로 301 리다이렉트된다. 모바일에서는
+// 그 한 번의 중간 이동에서 Threads 앱이 링크를 가로채 흐름이 끊기는 일이
+// 잦으므로, 처음부터 최종 주소로 보낸다.
+const threadsAuthorizeURL = "https://www.threads.com/oauth/authorize"
 
 // threadsScopes는 이 앱이 필요한 권한이다.
 // 답글로 링크를 올리므로 threads_manage_replies가 필요하다.
@@ -371,7 +379,7 @@ func AuthorizeURL(appID, redirectURI, state string) string {
 
 // CodeToToken은 콜백으로 받은 code를 1시간짜리 단기 토큰으로 바꾼다.
 func (t *Threads) CodeToToken(ctx context.Context, appID, appSecret, redirectURI, code string) (string, error) {
-	return t.codeToTokenAt(ctx, threadsTokenAPI, appID, appSecret, redirectURI, code)
+	return t.codeToTokenAt(ctx, t.TokenURL, appID, appSecret, redirectURI, code)
 }
 
 func (t *Threads) codeToTokenAt(ctx context.Context, base, appID, appSecret, redirectURI, code string) (string, error) {
