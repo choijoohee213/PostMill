@@ -38,3 +38,8 @@
 <script src="/static/app.js"></script>
 </body>
 </html>{{end}}
+
+{{define "avatar"}}<span class="tavatar">{{template "person_icon"}}</span>{{end}}
+{{define "avatar_sm"}}<span class="tavatar tavatar-sm">{{template "person_icon"}}</span>{{end}}
+
+{{define "person_icon"}}<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-4.4 0-8 2.5-8 5.5V22h16v-2.5c0-3-3.6-5.5-8-5.5Z"/></svg>{{end}}

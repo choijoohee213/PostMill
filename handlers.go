@@ -290,7 +290,6 @@ type editData struct {
 	DetailUsed  int
 	Detail2Used int
 	Handle      string
-	Initial     string
 	Error       string
 }
 
@@ -322,14 +321,6 @@ func (a *app) handleDraftEdit(w http.ResponseWriter, r *http.Request) {
 	a.renderEdit(w, r, p, "")
 }
 
-// initial은 미리보기 아바타에 넣을 첫 글자다.
-func initial(handle string) string {
-	for _, r := range strings.TrimPrefix(handle, "@") {
-		return strings.ToUpper(string(r))
-	}
-	return "?"
-}
-
 func (a *app) renderEdit(w http.ResponseWriter, r *http.Request, p *Post, errMsg string) {
 	handle := "@나"
 	if u, ok := a.currentUser(r); ok && u.Username != "" {
@@ -358,7 +349,6 @@ func (a *app) renderEdit(w http.ResponseWriter, r *http.Request, p *Post, errMsg
 		DetailUsed:  CharCount(strings.TrimSpace(p.Detail)),
 		Detail2Used: CharCount(strings.TrimSpace(p.Detail2)),
 		Handle:      handle,
-		Initial:     initial(handle),
 		Error:       errMsg,
 	})
 }
@@ -453,7 +443,7 @@ func (a *app) handlePublish(w http.ResponseWriter, r *http.Request) {
 
 	u, ok := a.currentUser(r)
 	if !ok {
-		a.renderEdit(w, r, p, "스레드 계정 정보를 찾을 수 없어요. 다시 로그인해주세요.")
+		a.renderEdit(w, r, p, "Threads 계정 정보를 찾을 수 없어요. 다시 로그인해주세요.")
 		return
 	}
 
@@ -489,7 +479,7 @@ func (a *app) handlePublish(w http.ResponseWriter, r *http.Request) {
 	if res.ReplyErr != nil {
 		log.Printf("링크 답글 실패 (id=%d): %v", p.ID, res.ReplyErr)
 		if dbErr := a.db.SetPublishNote(r.Context(), p.ID,
-			"글은 올라갔지만 답글에 실패했어요. 스레드에서 직접 달아주세요: "+res.ReplyErr.Error()); dbErr != nil {
+			"글은 올라갔지만 답글에 실패했어요. Threads에서 직접 달아주세요: "+res.ReplyErr.Error()); dbErr != nil {
 			log.Printf("답글 실패 기록도 실패 (id=%d): %v", p.ID, dbErr)
 		}
 	}

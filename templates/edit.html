@@ -5,7 +5,7 @@
 {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
 
 {{if eq .Post.Status "published"}}
-<p class="notice">이미 게시한 글이에요.{{if .Post.ThreadPermalink}} <a href="{{.Post.ThreadPermalink}}" target="_blank" rel="noopener">스레드에서 보기</a>{{end}}</p>
+<p class="notice">이미 게시한 글이에요.{{if .Post.ThreadPermalink}} <a href="{{.Post.ThreadPermalink}}" target="_blank" rel="noopener">Threads에서 보기</a>{{end}}</p>
 {{end}}
 
 <!-- 1. 상품과 링크 -->
@@ -42,7 +42,7 @@
 
       <article class="tpost">
         <div class="tpost-rail">
-          <span class="tavatar">{{.Initial}}</span>
+          {{template "avatar"}}
           <span class="trail-line"></span>
         </div>
         <div class="tpost-main">
@@ -63,7 +63,7 @@
 
       <article class="tpost" id="preview-detail-card"{{if not .Post.Detail}} data-empty="1"{{end}}>
         <div class="tpost-rail">
-          <span class="tavatar tavatar-sm">{{.Initial}}</span>
+          {{template "avatar_sm"}}
           <span class="trail-line"></span>
         </div>
         <div class="tpost-main">
@@ -84,7 +84,7 @@
 
       <article class="tpost" id="preview-detail2-card"{{if not .Post.Detail2}} data-empty="1"{{end}}>
         <div class="tpost-rail">
-          <span class="tavatar tavatar-sm">{{.Initial}}</span>
+          {{template "avatar_sm"}}
           <span class="trail-line"></span>
         </div>
         <div class="tpost-main">
@@ -105,7 +105,7 @@
 
       <article class="tpost tpost-last">
         <div class="tpost-rail">
-          <span class="tavatar tavatar-sm">{{.Initial}}</span>
+          {{template "avatar_sm"}}
         </div>
         <div class="tpost-main">
           <div class="tpost-top">
@@ -123,15 +123,15 @@
   </form>
 </section>
 
-<!-- 3. 스레드에 게시 -->
+<!-- 3. Threads에 게시 -->
 <section class="step">
-  <h2 class="step-title"><span class="step-num">3</span> 스레드에 게시</h2>
+  <h2 class="step-title"><span class="step-num">3</span> Threads에 게시</h2>
 
   {{if ne .Post.Status "published"}}
   <form method="post" action="/drafts/{{.Post.ID}}/publish" data-publish>
-    <button class="btn btn-primary btn-block" type="submit"{{if or .Error (not .Post.AffiliateLink)}} disabled{{end}}>스레드에 게시</button>
+    <button class="btn btn-primary btn-block" type="submit"{{if or .Error (not .Post.AffiliateLink)}} disabled{{end}}>Threads에 게시</button>
   </form>
-  {{if not .Post.AffiliateLink}}<p class="hint">제휴 링크를 넣으면 게시할 수 있어요.</p>{{end}}
+  {{if not .Post.AffiliateLink}}<p class="hint">게시하려면 제휴 링크가 필요해요.</p>{{end}}
   {{end}}
 
   <div class="secondary-actions">

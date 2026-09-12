@@ -72,13 +72,13 @@
         {{if ne .Status "published"}}
           {{if .AffiliateLink}}
           <form method="post" action="/drafts/{{.ID}}/publish" data-publish>
-            <button class="btn btn-small btn-primary" type="submit">스레드에 게시</button>
+            <button class="btn btn-small btn-primary" type="submit">Threads에 게시</button>
           </form>
           {{else}}
-          <span class="need-link">게시하려면 링크가 필요해요</span>
+          <span class="need-link">게시하려면 제휴 링크가 필요해요</span>
           {{end}}
         {{else if .ThreadPermalink}}
-          <a class="btn btn-small" href="{{.ThreadPermalink}}" target="_blank" rel="noopener">스레드에서 보기</a>
+          <a class="btn btn-small" href="{{.ThreadPermalink}}" target="_blank" rel="noopener">Threads에서 보기</a>
         {{end}}
       </div>
     {{end}}
