@@ -355,79 +355,10 @@ func (t *Threads) exchangeAt(ctx context.Context, base, appSecret, shortToken st
 	return out.AccessToken, time.Now().Add(time.Duration(out.ExpiresIn) * time.Second), nil
 }
 
-// threadsAuthorizeURL은 사용자가 권한을 승인하는 화면이다.
-//
-// threads.net은 www.threads.com으로 301 리다이렉트된다. 모바일에서는
-// 그 한 번의 중간 이동에서 Threads 앱이 링크를 가로채 흐름이 끊기는 일이
-// 잦으므로, 처음부터 최종 주소로 보낸다.
-const threadsAuthorizeURL = "https://www.threads.com/oauth/authorize"
-
 // threadsScopes는 이 앱이 필요한 권한이다.
 // 답글로 링크를 올리므로 threads_manage_replies가 필요하다.
+// 토큰 생성기에서 이 권한들이 모두 켜져 있어야 한다.
 const threadsScopes = "threads_basic,threads_content_publish,threads_manage_replies"
-
-// AuthorizeURL은 사용자를 보낼 승인 화면 주소를 만든다.
-//
-// forceReauth를 켜면 브라우저에 남은 Meta 세션을 무시하고 다시 로그인하게
-// 한다. 인스타 계정이 여러 개 묶여 있으면 승인이 대표 계정으로 즉시
-// 처리되어 계정을 고를 틈이 없는데, 그때 쓰는 길이다.
-func AuthorizeURL(appID, redirectURI, state string, forceReauth bool) string {
-	q := url.Values{}
-	q.Set("client_id", appID)
-	q.Set("redirect_uri", redirectURI)
-	q.Set("scope", threadsScopes)
-	q.Set("response_type", "code")
-	q.Set("state", state)
-	if forceReauth {
-		q.Set("force_reauth", "true")
-	}
-	return threadsAuthorizeURL + "?" + q.Encode()
-}
-
-// CodeToToken은 콜백으로 받은 code를 1시간짜리 단기 토큰으로 바꾼다.
-func (t *Threads) CodeToToken(ctx context.Context, appID, appSecret, redirectURI, code string) (string, error) {
-	return t.codeToTokenAt(ctx, t.TokenURL, appID, appSecret, redirectURI, code)
-}
-
-func (t *Threads) codeToTokenAt(ctx context.Context, base, appID, appSecret, redirectURI, code string) (string, error) {
-	form := url.Values{}
-	form.Set("client_id", appID)
-	form.Set("client_secret", appSecret)
-	form.Set("code", code)
-	form.Set("grant_type", "authorization_code")
-	form.Set("redirect_uri", redirectURI)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		base+"oauth/access_token", strings.NewReader(form.Encode()))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	resp, err := t.HTTP.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode != http.StatusOK {
-		var e threadsError
-		json.Unmarshal(raw, &e)
-		if e.Error.Message != "" {
-			return "", fmt.Errorf("%s", e.Error.Message)
-		}
-		return "", fmt.Errorf("코드 교환 실패 (HTTP %d)", resp.StatusCode)
-	}
-
-	var out struct {
-		AccessToken string `json:"access_token"`
-	}
-	if err := json.Unmarshal(raw, &out); err != nil || out.AccessToken == "" {
-		return "", fmt.Errorf("코드 교환 응답을 해석하지 못했다")
-	}
-	return out.AccessToken, nil
-}
 
 // ThreadsMe는 토큰이 가리키는 계정이다.
 type ThreadsMe struct {

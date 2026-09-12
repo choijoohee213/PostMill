@@ -70,8 +70,6 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("GET /static/", http.FileServerFS(staticFS))
 	mux.HandleFunc("GET /login", a.handleLoginForm)
-	mux.HandleFunc("POST /login/start", a.handleLoginStart)
-	mux.HandleFunc("GET /login/callback", a.handleLoginCallback)
 	mux.HandleFunc("POST /login/dev", a.handleDevLogin)
 	mux.HandleFunc("POST /login/token", a.handleTokenLogin)
 	mux.HandleFunc("POST /logout", a.handleLogout)

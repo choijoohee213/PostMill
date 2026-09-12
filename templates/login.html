@@ -3,48 +3,45 @@
 <div class="hero">
   <h1 class="hero-title">PostMill</h1>
   <p class="hero-sub">Threads에 올릴 제휴 글을 AI가 만들고, 검수해서 게시합니다.</p>
-
-  {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
-
-  <form method="post" action="/login/start">
-    <button class="btn btn-primary btn-block" type="submit">Threads로 로그인</button>
-  </form>
-
-  <form method="post" action="/login/start" class="switch-form">
-    <input type="hidden" name="switch" value="1">
-    <button class="btn btn-block" type="submit">다른 계정으로 로그인</button>
-  </form>
-  <p class="hint">비밀번호는 Threads 화면에서 입력하고, 이 앱은 보지 않습니다.</p>
-
-  <details class="fallback"{{if .Error}} open{{end}}>
-    <summary>계정이 바뀌어 로그인이 안 되나요?</summary>
-    <p class="hint">
-      인스타 계정이 여러 개 묶여 있으면 브라우저에 남은 세션 때문에
-      원하지 않는 계정으로 넘어갑니다. Meta가 계정을 다시 고르게 하는
-      방법을 제공하지 않아, 이럴 때는 토큰으로 들어와야 합니다.
-    </p>
-    <ol class="steps">
-      <li><a href="https://developers.facebook.com/apps/{{.AppID}}/use_cases/" target="_blank" rel="noopener">Meta 개발자 대시보드</a> → 이용 사례 → Threads API 맞춤 설정</li>
-      <li>아래로 내려 <b>사용자 토큰 생성기</b>에서 쓰려는 계정의 <b>토큰 생성</b></li>
-      <li>나온 값을 아래에 붙여넣기 (1시간 안에)</li>
-    </ol>
-    <form class="form" method="post" action="/login/token">
-      <label class="field">
-        <span class="label">액세스 토큰</span>
-        <textarea name="token" rows="4" placeholder="TH..." required></textarea>
-      </label>
-      <div class="actions">
-        <button class="btn btn-primary" type="submit">토큰으로 로그인</button>
-      </div>
-    </form>
-  </details>
-
-  {{if .DevLogin}}
-  <form method="post" action="/login/dev" class="dev-login">
-    <button class="btn btn-small" type="submit">개발용 로그인 (로컬 전용)</button>
-  </form>
-  <p class="hint">Meta가 http 페이지의 로그인을 막아 로컬에서는 Threads 로그인이 되지 않습니다.</p>
-  {{end}}
 </div>
+
+{{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+
+<section class="panel">
+  <h2 class="panel-title">토큰으로 로그인</h2>
+  <p class="hint">
+    글을 올릴 Threads 계정의 액세스 토큰을 붙여넣으세요.
+    토큰의 주인으로 로그인되므로 브라우저에 어떤 계정이 로그인돼 있든 상관없습니다.
+  </p>
+
+  <ol class="steps">
+    <li><a href="https://developers.facebook.com/apps/{{.AppID}}/use_cases/" target="_blank" rel="noopener">Meta 개발자 대시보드</a> 열기</li>
+    <li>이용 사례 → <b>Threads API</b> → 맞춤 설정</li>
+    <li>아래로 내려 <b>사용자 토큰 생성기</b>에서 쓰려는 계정의 <b>토큰 생성</b></li>
+    <li>나온 값을 복사해 아래에 붙여넣기</li>
+  </ol>
+
+  <form class="form" method="post" action="/login/token">
+    <label class="field">
+      <span class="label">액세스 토큰</span>
+      <textarea name="token" rows="4" placeholder="TH..." required autofocus></textarea>
+      <span class="hint">토큰은 1시간이면 만료됩니다. 만들자마자 붙여넣으세요.</span>
+    </label>
+    <div class="actions">
+      <button class="btn btn-primary btn-block" type="submit">로그인</button>
+    </div>
+  </form>
+
+  <p class="hint login-note">
+    한 번 로그인하면 이 기기에서는 다시 할 일이 없습니다.
+    토큰은 만료 전에 자동으로 갱신됩니다.
+  </p>
+</section>
+
+{{if .DevLogin}}
+<form method="post" action="/login/dev" class="dev-login">
+  <button class="btn btn-small" type="submit">개발용 로그인 (로컬 전용)</button>
+</form>
+{{end}}
 
 {{template "foot" .}}

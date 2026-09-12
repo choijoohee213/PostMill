@@ -492,7 +492,7 @@ main {
 
 /* 로그인 화면 */
 .hero {
-  padding: 72px 0 0;
+  padding: 44px 0 24px;
   text-align: center;
 }
 
@@ -878,3 +878,7 @@ main {
 .add-label em { font-style: normal; color: var(--muted); font-size: 13px; }
 
 .switch-form { margin-top: 8px; }
+
+.hero + .error { margin: 0 0 16px; }
+.login-note { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.panel .steps { margin: 14px 0 4px; }
