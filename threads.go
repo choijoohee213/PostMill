@@ -190,6 +190,49 @@ func (t *Threads) PublishText(ctx context.Context, token, text, replyTo string) 
 	return t.publishContainer(ctx, token, containerID)
 }
 
+// PublishImages는 사진이 붙은 게시물을 올린다. 답글에는 쓰지 않는다.
+//
+// 한 장이면 IMAGE, 여러 장이면 CAROUSEL이다. 캐러셀은 사진마다 항목
+// 컨테이너를 먼저 만들고, 그 id들을 묶은 컨테이너를 발행한다.
+func (t *Threads) PublishImages(ctx context.Context, token, text string, imageURLs []string) (string, error) {
+	form := url.Values{}
+	form.Set("text", text)
+	form.Set("access_token", token)
+
+	if len(imageURLs) == 1 {
+		form.Set("media_type", "IMAGE")
+		form.Set("image_url", imageURLs[0])
+	} else {
+		children := make([]string, 0, len(imageURLs))
+		for _, u := range imageURLs {
+			item := url.Values{}
+			item.Set("media_type", "IMAGE")
+			item.Set("image_url", u)
+			item.Set("is_carousel_item", "true")
+			item.Set("access_token", token)
+			id, err := t.post(ctx, "me/threads", item)
+			if err != nil {
+				return "", err
+			}
+			if err := t.waitForContainer(ctx, token, id); err != nil {
+				return "", err
+			}
+			children = append(children, id)
+		}
+		form.Set("media_type", "CAROUSEL")
+		form.Set("children", strings.Join(children, ","))
+	}
+
+	containerID, err := t.post(ctx, "me/threads", form)
+	if err != nil {
+		return "", err
+	}
+	if err := t.waitForContainer(ctx, token, containerID); err != nil {
+		return "", err
+	}
+	return t.publishContainer(ctx, token, containerID)
+}
+
 // Permalink는 올라간 글의 주소를 조회한다.
 func (t *Threads) Permalink(ctx context.Context, token, postID string) (string, error) {
 	u := fmt.Sprintf("%s%s?fields=permalink&access_token=%s",

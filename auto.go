@@ -90,6 +90,10 @@ func (a *app) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
+	// 새 상품으로 바뀌므로 붙여둔 사진은 맞지 않는다.
+	if err := a.db.DeleteImages(r.Context(), p.UserID, p.ID); err != nil {
+		log.Printf("재생성 사진 삭제 실패 (id=%d): %v", p.ID, err)
+	}
 	go a.suggest(p.ID, p.Affiliate, a.recentProducts(r.Context(), p.UserID),
 		categoryHints[rand.IntN(len(categoryHints))])
 

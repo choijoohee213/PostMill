@@ -42,7 +42,33 @@ func (a *app) runPublish(p *Post, token, body, link string) {
 
 	postID := p.ThreadPostID
 	if postID == "" {
-		id, err := a.threads.PublishText(ctx, token, body, "")
+		// 사진은 본문에만 붙는다. 본문이 이미 올라갔으면 다시 볼 필요가 없다.
+		imgs, err := a.db.ListImages(ctx, p.ID)
+		if err != nil {
+			log.Printf("사진 조회 실패 (id=%d): %v", p.ID, err)
+			if dbErr := a.db.MarkFailed(ctx, p.ID, "게시 실패: 사진을 불러오지 못했습니다."); dbErr != nil {
+				log.Printf("실패 기록도 실패 (id=%d): %v", p.ID, dbErr)
+			}
+			return
+		}
+
+		var id string
+		if len(imgs) > 0 {
+			if a.publicURL == "" {
+				if dbErr := a.db.MarkFailed(ctx, p.ID,
+					"게시 실패: 공개 주소가 없어 사진을 올릴 수 없어요. 배포된 서버에서 게시해주세요."); dbErr != nil {
+					log.Printf("실패 기록도 실패 (id=%d): %v", p.ID, dbErr)
+				}
+				return
+			}
+			urls := make([]string, len(imgs))
+			for i, im := range imgs {
+				urls[i] = a.mediaURL(im.Token)
+			}
+			id, err = a.threads.PublishImages(ctx, token, body, urls)
+		} else {
+			id, err = a.threads.PublishText(ctx, token, body, "")
+		}
 		if err != nil {
 			// 본문조차 올라가지 않았으므로 되돌려도 안전하다.
 			log.Printf("본문 게시 실패 (id=%d): %v", p.ID, err)
@@ -107,6 +133,11 @@ func (a *app) runPublish(p *Post, token, body, link string) {
 	if err := a.db.MarkPublished(ctx, p.ID, permalink); err != nil {
 		log.Printf("게시 완료 기록 실패 (id=%d): %v", p.ID, err)
 		return
+	}
+	// Threads가 사진을 이미 가져갔으므로 지워도 게시물에는 남는다.
+	// 실패해도 기한이 지나면 정리된다.
+	if err := a.db.DeleteImages(ctx, p.UserID, p.ID); err != nil {
+		log.Printf("게시한 글의 사진 삭제 실패 (id=%d): %v", p.ID, err)
 	}
 	log.Printf("게시 완료 (id=%d) %s", p.ID, permalink)
 }

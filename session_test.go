@@ -138,7 +138,7 @@ func TestRequireAuth_로그인_경로와_정적파일은_열려있다(t *testing
 	reached := 0
 	handler := a.requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { reached++ }))
 
-	open := []string{"/login", "/login/token", "/login/admin", "/static/style.css"}
+	open := []string{"/login", "/login/token", "/login/admin", "/static/style.css", "/media/TOKEN"}
 	for _, path := range open {
 		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, path, nil))
 	}
