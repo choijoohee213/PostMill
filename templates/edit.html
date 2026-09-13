@@ -5,7 +5,16 @@
 {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
 
 {{if eq .Post.Status "published"}}
-<p class="notice">이미 게시한 글이에요.{{if .Post.ThreadPermalink}} <a href="{{.Post.ThreadPermalink}}" target="_blank" rel="noopener">Threads에서 보기</a>{{end}}</p>
+<p class="notice">이미 게시한 글이에요.</p>
+{{if .Post.ThreadPermalink}}
+<!-- Threads 공식 임베드. 스크립트가 못 뜨면 안의 링크가 그대로 보인다. -->
+<div class="threads-embed">
+  <blockquote class="text-post-media" data-text-post-permalink="{{.Post.ThreadPermalink}}" data-text-post-version="0">
+    <a href="{{.Post.ThreadPermalink}}" target="_blank" rel="noopener">Threads에서 보기</a>
+  </blockquote>
+</div>
+<script async src="https://www.threads.com/embed.js"></script>
+{{end}}
 {{end}}
 
 <!-- 1. 상품과 링크 -->
