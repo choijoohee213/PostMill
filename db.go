@@ -395,3 +395,79 @@ func (db *DB) ListStuckPublishing(ctx context.Context, userID string) ([]*Post, 
 	}
 	return posts, rows.Err()
 }
+
+// PostImage는 첨부한 사진 한 장이다. 목록에서는 바이트를 싣지 않는다.
+type PostImage struct {
+	ID        int64
+	Token     string
+	CreatedAt time.Time
+}
+
+// AddImage는 사진 한 장을 붙인다. 그 사용자의 글이 아니면 아무것도 하지 않는다.
+func (db *DB) AddImage(ctx context.Context, userID string, postID int64, token, contentType string, data []byte) error {
+	_, err := db.pool.Exec(ctx,
+		`INSERT INTO post_images (post_id, token, content_type, data)
+		 SELECT id, $3, $4, $5 FROM posts WHERE id = $1 AND user_id = $2`,
+		postID, userID, token, contentType, data)
+	return err
+}
+
+// ListImages는 글에 붙은 사진을 붙인 순서대로 반환한다.
+func (db *DB) ListImages(ctx context.Context, postID int64) ([]PostImage, error) {
+	rows, err := db.pool.Query(ctx,
+		`SELECT id, token, created_at FROM post_images WHERE post_id = $1 ORDER BY id`, postID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var imgs []PostImage
+	for rows.Next() {
+		var im PostImage
+		if err := rows.Scan(&im.ID, &im.Token, &im.CreatedAt); err != nil {
+			return nil, err
+		}
+		imgs = append(imgs, im)
+	}
+	return imgs, rows.Err()
+}
+
+// GetImageData는 token으로 사진 바이트를 읽는다. 없으면 pgx.ErrNoRows.
+func (db *DB) GetImageData(ctx context.Context, token string) (string, []byte, error) {
+	var contentType string
+	var data []byte
+	err := db.pool.QueryRow(ctx,
+		`SELECT content_type, data FROM post_images WHERE token = $1`, token).Scan(&contentType, &data)
+	return contentType, data, err
+}
+
+// DeleteImage는 사진 한 장을 뗀다.
+func (db *DB) DeleteImage(ctx context.Context, userID string, postID, imageID int64) error {
+	_, err := db.pool.Exec(ctx,
+		`DELETE FROM post_images
+		 WHERE id = $1 AND post_id = $2
+		   AND post_id IN (SELECT id FROM posts WHERE user_id = $3)`,
+		imageID, postID, userID)
+	return err
+}
+
+// DeleteImages는 글에 붙은 사진을 모두 지운다 (게시 완료, 재생성).
+func (db *DB) DeleteImages(ctx context.Context, userID string, postID int64) error {
+	_, err := db.pool.Exec(ctx,
+		`DELETE FROM post_images
+		 WHERE post_id = $1 AND post_id IN (SELECT id FROM posts WHERE user_id = $2)`,
+		postID, userID)
+	return err
+}
+
+// ExpireImages는 붙인 지 오래된 사진을 지운다. 크론이 없으므로 화면을 열 때 부른다.
+//
+// 게시 중인 글의 사진은 남긴다. Threads가 아직 가져가지 않았을 수 있다.
+func (db *DB) ExpireImages(ctx context.Context, olderThan time.Duration) error {
+	_, err := db.pool.Exec(ctx,
+		`DELETE FROM post_images i USING posts p
+		 WHERE i.post_id = p.id AND p.status <> $1
+		   AND i.created_at < now() - $2::interval`,
+		StatusPublishing, olderThan.String())
+	return err
+}

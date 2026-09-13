@@ -51,3 +51,16 @@ ALTER TABLE posts ADD COLUMN IF NOT EXISTS thread_post_id text NOT NULL DEFAULT 
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS replies_done int NOT NULL DEFAULT 0;
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS last_reply_id text NOT NULL DEFAULT '';
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS publish_started_at timestamptz;
+
+-- 사용자가 직접 첨부한 사진. Threads는 공개 URL로만 미디어를 받으므로
+-- 추측할 수 없는 token 주소로 잠깐 내보인다. 게시가 끝나면 지운다.
+CREATE TABLE IF NOT EXISTS post_images (
+    id           bigserial PRIMARY KEY,
+    post_id      bigint      NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+    token        text        NOT NULL UNIQUE,
+    content_type text        NOT NULL,
+    data         bytea       NOT NULL,
+    created_at   timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS post_images_post_id_idx ON post_images (post_id, id);

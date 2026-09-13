@@ -101,6 +101,63 @@ if (document.getElementById('poll')) {
   input.addEventListener('change', save);
 })();
 
+// 편집 화면: 사진을 브라우저에서 가로 1440px 이하 JPEG로 줄여 올린다.
+// 휴대폰 원본은 수 MB라 그대로 올리면 느리고 DB도 금방 찬다. 다시 그리면서
+// 위치 정보 같은 EXIF도 떨어진다.
+(function () {
+  var box = document.getElementById('photo-add');
+  if (!box) return;
+  var input = box.querySelector('input[type="file"]');
+  var status = document.getElementById('photo-status');
+  var room = parseInt(box.dataset.max, 10) - parseInt(box.dataset.room, 10);
+
+  function shrink(file) {
+    return createImageBitmap(file, { imageOrientation: 'from-image' }).then(function (bmp) {
+      if (bmp.width < 320) throw new Error('가로가 320px보다 작은 사진은 올릴 수 없어요.');
+      // 긴 변을 1440에 맞추되, 세로로 긴 사진이 가로 320 아래로 줄지 않게 한다.
+      var scale = Math.min(1, 1440 / Math.max(bmp.width, bmp.height));
+      if (bmp.width * scale < 320) scale = 320 / bmp.width;
+      var canvas = document.createElement('canvas');
+      canvas.width = Math.round(bmp.width * scale);
+      canvas.height = Math.round(bmp.height * scale);
+      var ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff'; // PNG의 투명한 부분이 JPEG에서 검게 되지 않게
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+      return new Promise(function (resolve) {
+        canvas.toBlob(resolve, 'image/jpeg', 0.85);
+      });
+    }, function () {
+      throw new Error('이 사진은 열 수 없어요. JPEG나 PNG로 바꿔서 올려주세요.');
+    });
+  }
+
+  input.addEventListener('change', function () {
+    var files = Array.prototype.slice.call(input.files);
+    input.value = '';
+    if (!files.length) return;
+    if (files.length > room) {
+      status.textContent = '사진은 ' + box.dataset.max + '장까지예요. ' + room + '장 더 붙일 수 있어요.';
+      return;
+    }
+
+    status.textContent = '올리는 중이에요...';
+    Promise.all(files.map(shrink)).then(function (blobs) {
+      var fd = new FormData();
+      blobs.forEach(function (b, i) { fd.append('images', b, 'photo' + i + '.jpg'); });
+      return fetch(box.dataset.action, { method: 'POST', body: fd });
+    }).then(function (res) {
+      if (res.ok) {
+        location.reload();
+        return;
+      }
+      return res.text().then(function (msg) { throw new Error(msg.trim()); });
+    }).catch(function (err) {
+      status.textContent = err.message || '사진을 올리지 못했어요.';
+    });
+  });
+})();
+
 // 로그인 화면: 버튼으로 입력 칸을 갈아끼운다.
 // 자바스크립트가 없으면 모든 칸이 그대로 보여 여전히 로그인할 수 있다.
 (function () {

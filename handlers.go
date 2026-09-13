@@ -25,12 +25,13 @@ var tabs = []tab{
 }
 
 var templateFuncs = template.FuncMap{
-	"preview":     preview,
-	"formatTime":  formatTime,
-	"affiliateKo": affiliateKo,
-	"affiliateOf": affiliateOf,
-	"canRetry":    canRetry,
-	"canResume":   canResume,
+	"preview":       preview,
+	"formatTime":    formatTime,
+	"affiliateKo":   affiliateKo,
+	"affiliateOf":   affiliateOf,
+	"canRetry":      canRetry,
+	"canResume":     canResume,
+	"canEditImages": canEditImages,
 }
 
 // canResume은 게시가 끊긴 채 멈춘 글인지 본다.
@@ -113,6 +114,8 @@ type listData struct {
 }
 
 func (a *app) handleList(w http.ResponseWriter, r *http.Request) {
+	a.expireImages(r)
+
 	active := r.URL.Query().Get("tab")
 	current := tabs[0]
 	for _, t := range tabs {
@@ -330,6 +333,8 @@ type editData struct {
 	Detail2Used int
 	Handle      string
 	Error       string
+	Images      []PostImage
+	MaxImages   int
 }
 
 // draftFor는 편집 가능한 초안을 읽는다. 생성 중이거나 없는 글은 목록으로 돌려보낸다.
@@ -357,6 +362,7 @@ func (a *app) handleDraftEdit(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	a.expireImages(r)
 	a.renderEdit(w, r, p, "")
 }
 
@@ -376,8 +382,15 @@ func (a *app) renderEdit(w http.ResponseWriter, r *http.Request, p *Post, errMsg
 		errMsg = "지금 상태로는 게시할 수 없어요: " + err.Error()
 	}
 
+	images, err := a.db.ListImages(r.Context(), p.ID)
+	if err != nil {
+		log.Printf("사진 목록 조회 실패 (id=%d): %v", p.ID, err)
+	}
+
 	a.render(w, "edit.html", editData{
 		Post:        p,
+		Images:      images,
+		MaxImages:   maxImages,
 		Disclosure:  disclosure,
 		Preview:     preview,
 		Reply:       reply,
@@ -421,6 +434,9 @@ func (a *app) handleRegenerate(w http.ResponseWriter, r *http.Request) {
 		log.Printf("재생성 준비 실패 (id=%d): %v", p.ID, err)
 		a.renderEdit(w, r, p, "재생성을 시작하지 못했습니다.")
 		return
+	}
+	if err := a.db.DeleteImages(r.Context(), p.UserID, p.ID); err != nil {
+		log.Printf("재생성 사진 삭제 실패 (id=%d): %v", p.ID, err)
 	}
 	go a.generate(p.ID, p.Affiliate, p.Memo)
 

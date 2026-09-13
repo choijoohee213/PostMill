@@ -113,5 +113,7 @@ func isPublicPath(path string) bool {
 	return path == "/login" ||
 		path == "/login/token" ||
 		path == "/login/admin" ||
+		// Threads가 게시할 때 사진을 가져가는 주소. token을 모르면 열 수 없다.
+		strings.HasPrefix(path, "/media/") ||
 		strings.HasPrefix(path, "/static/")
 }

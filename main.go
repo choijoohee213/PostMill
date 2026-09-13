@@ -26,6 +26,10 @@ type app struct {
 	appSecret     string
 	adminPassword string
 
+	// publicURL은 Threads가 사진을 가져갈 이 서버의 공개 주소다.
+	// Render가 RENDER_EXTERNAL_URL로 넣어준다. 로컬에서는 비어 사진 게시가 막힌다.
+	publicURL string
+
 	testTpl *template.Template // 테스트에서 전체 템플릿 없이 렌더링하기 위해 쓴다
 }
 
@@ -65,6 +69,7 @@ func main() {
 		appID:         os.Getenv("THREADS_APP_ID"),
 		appSecret:     os.Getenv("THREADS_APP_SECRET"),
 		adminPassword: os.Getenv("ADMIN_PASSWORD"),
+		publicURL:     os.Getenv("RENDER_EXTERNAL_URL"),
 	}
 
 	mux := http.NewServeMux()
@@ -89,6 +94,9 @@ func main() {
 	mux.HandleFunc("POST /drafts/{id}/delete", a.handleDelete)
 	mux.HandleFunc("POST /drafts/{id}/publish", a.handlePublish)
 	mux.HandleFunc("POST /drafts/{id}/resume", a.handleResumePublish)
+	mux.HandleFunc("POST /drafts/{id}/images", a.handleImageUpload)
+	mux.HandleFunc("POST /drafts/{id}/images/{imageID}/delete", a.handleImageDelete)
+	mux.HandleFunc("GET /media/{token}", a.handleMedia)
 	mux.HandleFunc("GET /history", a.handleHistory)
 	mux.HandleFunc("GET /settings", a.handleSettings)
 	mux.HandleFunc("POST /disconnect", a.handleDisconnect)

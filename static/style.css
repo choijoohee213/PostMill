@@ -979,3 +979,68 @@ main {
 
 /* display를 직접 잡았으므로 [hidden]을 여기서 다시 살려줘야 한다. */
 .link-help[hidden] { display: none; }
+
+/* 첨부한 사진. 정사각 썸네일로 보여주고 모서리 버튼으로 뺀다. */
+.photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.photo {
+  position: relative;
+  margin: 0;
+  aspect-ratio: 1;
+}
+
+.photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+}
+
+.photo form { margin: 0; }
+
+.photo-del {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 17px;
+  line-height: 26px;
+  cursor: pointer;
+}
+
+.photo-add {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+}
+
+.photo-add .hint { margin: 0; }
+
+/* 미리보기: Threads처럼 본문 아래에 가로로 늘어놓는다. */
+.tphotos {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  overflow-x: auto;
+}
+
+.tphotos img {
+  flex: none;
+  height: 160px;
+  max-width: 80%;
+  object-fit: cover;
+  border-radius: 10px;
+}
