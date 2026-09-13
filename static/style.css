@@ -962,3 +962,106 @@ main {
   height: 17px;
   flex: none;
 }
+
+/* 로그인 화면 아래 서비스 소개. 비로그인 방문자가 보는 유일한 설명이다. */
+.about {
+  max-width: 420px;
+  margin: 0 auto;
+  padding: 40px 0 56px;
+}
+
+.about-title {
+  margin: 0 0 10px;
+  font-size: 17px;
+  font-weight: 650;
+}
+
+.about-lead {
+  margin: 0 0 22px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.about-sub {
+  margin: 26px 0 8px;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.about-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.about-link {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.about-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: about-step;
+}
+
+.about-steps li {
+  position: relative;
+  margin-bottom: 12px;
+  padding: 13px 14px 13px 44px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  counter-increment: about-step;
+}
+
+.about-steps li::before {
+  content: counter(about-step);
+  position: absolute;
+  top: 13px;
+  left: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.about-steps b {
+  display: block;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.about-steps span {
+  display: block;
+  margin-top: 3px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.about-quotes {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.about-quotes li {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-left: 2px solid var(--line);
+  border-radius: 0 8px 8px 0;
+  background: var(--card);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted);
+}

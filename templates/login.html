@@ -50,4 +50,51 @@
   <p class="hint login-note">한 번 로그인하면 이 기기에서는 다시 할 일이 없습니다.</p>
 </div>
 
+<!-- 서비스 소개. 로그인 없이 보이는 유일한 화면이므로, 처음 들어온 사람이
+     PostMill이 무엇을 하는 도구인지 여기서 알 수 있어야 한다. -->
+<section class="about">
+  <h2 class="about-title">PostMill은 어떤 서비스인가요</h2>
+  <p class="about-lead">
+    Threads(스레드) 게시를 자동화해 주는 1인 운영 도구입니다.
+    상품을 소개하는 글의 초안을 AI가 만들고, 사람이 검수한 뒤 Threads 계정에 게시합니다.
+  </p>
+
+  <ol class="about-steps">
+    <li>
+      <b>AI 초안 생성</b>
+      <span>소개할 상품과 메모를 넣으면 본문과 댓글 초안이 만들어집니다.</span>
+    </li>
+    <li>
+      <b>사람이 검수·수정</b>
+      <span>문구를 직접 고치고, 제휴 링크를 확인한 뒤 게시할지 결정합니다.</span>
+    </li>
+    <li>
+      <b>Threads에 게시</b>
+      <span>승인한 글만 Threads API로 올라갑니다. 자동 게시는 하지 않습니다.</span>
+    </li>
+  </ol>
+
+  <h3 class="about-sub">게시 채널</h3>
+  <p class="about-text">
+    소개 글과 링크는 아래 Threads 계정에만 노출됩니다.
+    <a class="about-link" href="https://www.threads.net/@flxmf.lqj" target="_blank" rel="noopener">@flxmf.lqj</a>
+  </p>
+
+  <h3 class="about-sub">대가성 표기</h3>
+  <p class="about-text">
+    제휴 링크가 들어가는 글은 본문에 안내 문구가 <b>자동으로</b> 들어갑니다.
+    문구가 빠진 글은 게시 자체가 막힙니다.
+  </p>
+  <ul class="about-quotes">
+    <li>이 콘텐츠는 토스쇼핑 쉐어링크 활동의 일환으로, 링크를 통한 구매가 발생하면 일정 수수료를 지급받습니다.</li>
+    <li>이 게시물은 쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다.</li>
+  </ul>
+
+  <h3 class="about-sub">상품 정보 취급</h3>
+  <p class="about-text">
+    게시글을 쓰기 위한 도구이므로, 상품·가격 정보를 쌓아두고 목록으로 나열하거나
+    다른 쇼핑몰과 비교해 보여주는 화면은 없습니다.
+  </p>
+</section>
+
 {{template "foot" .}}
