@@ -28,6 +28,7 @@ var templateFuncs = template.FuncMap{
 	"preview":     preview,
 	"formatTime":  formatTime,
 	"affiliateKo": affiliateKo,
+	"affiliateOf": affiliateOf,
 	"canRetry":    canRetry,
 	"canResume":   canResume,
 }
@@ -76,6 +77,17 @@ func formatTime(v any) string {
 	default:
 		return "-"
 	}
+}
+
+// affiliateOf는 제휴사 키로 선택지를 찾는다. 편집 화면처럼 목록 전체가
+// 아니라 글 하나의 제휴사만 아는 곳에서 바로가기를 꺼내 쓴다.
+func affiliateOf(key string) *affiliateOption {
+	for i := range affiliateOptions {
+		if affiliateOptions[i].Key == key {
+			return &affiliateOptions[i]
+		}
+	}
+	return nil
 }
 
 func affiliateKo(a string) string {
@@ -170,6 +182,12 @@ type newData struct {
 type affiliateOption struct {
 	Key   string
 	Label string
+
+	// 제휴 링크를 만들러 가는 곳. PostMill이 링크를 대신 발급하지 못하므로
+	// 최소한 만들러 가는 길은 폼 안에서 열어준다.
+	HelpURL   string
+	HelpLabel string
+	HelpHint  string
 }
 
 type newForm struct {
@@ -180,8 +198,20 @@ type newForm struct {
 }
 
 var affiliateOptions = []affiliateOption{
-	{AffiliateCoupang, "쿠팡"},
-	{AffiliateToss, "토스"},
+	{
+		Key:       AffiliateCoupang,
+		Label:     "쿠팡",
+		HelpURL:   "https://partners.coupang.com/",
+		HelpLabel: "쿠팡 파트너스 열기",
+		HelpHint:  "링크 생성에서 상품 주소나 검색 주소를 넣어 만든 링크를 붙여넣으세요.",
+	},
+	{
+		Key:       AffiliateToss,
+		Label:     "토스",
+		HelpURL:   "https://sharelink.toss.im/",
+		HelpLabel: "토스 쉐어링크 열기",
+		HelpHint:  "토스쇼핑에서 상품을 찾아 쉐어링크를 복사해 붙여넣으세요.",
+	},
 }
 
 func (a *app) handleNewForm(w http.ResponseWriter, r *http.Request) {

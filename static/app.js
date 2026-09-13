@@ -99,3 +99,23 @@ if (document.getElementById('poll')) {
     b.addEventListener('click', function () { show(b.dataset.panel); });
   });
 })();
+
+// 초안 만들기: 제휴사를 고르면 그 제휴사의 바로가기만 보인다.
+// 자바스크립트가 없으면 전부 보이고, 링크를 붙여넣는 데는 지장이 없다.
+(function () {
+  var radios = document.querySelectorAll('input[name="affiliate"]');
+  var helps = document.querySelectorAll('[data-aff-help]');
+  if (!radios.length || !helps.length) return;
+
+  function sync() {
+    var checked = document.querySelector('input[name="affiliate"]:checked');
+    helps.forEach(function (h) {
+      h.hidden = !checked || h.dataset.affHelp !== checked.value;
+    });
+  }
+
+  radios.forEach(function (r) {
+    r.addEventListener('change', sync);
+  });
+  sync();
+})();

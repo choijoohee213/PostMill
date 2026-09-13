@@ -962,3 +962,20 @@ main {
   height: 17px;
   flex: none;
 }
+
+/* 제휴 링크를 만들러 가는 바로가기. 입력 칸 바로 아래에 붙는다. */
+.link-help {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  margin-top: 8px;
+}
+
+.link-help .hint {
+  flex: 1 1 180px;
+  margin: 0;
+}
+
+/* display를 직접 잡았으므로 [hidden]을 여기서 다시 살려줘야 한다. */
+.link-help[hidden] { display: none; }

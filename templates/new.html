@@ -17,12 +17,20 @@
     </div>
   </fieldset>
 
-  <label class="field">
-    <span class="label">제휴 링크</span>
-    <input type="url" name="affiliate_link" value="{{.Form.AffiliateLink}}"
+  <div class="field">
+    <label class="label" for="affiliate_link">제휴 링크</label>
+    <input type="url" id="affiliate_link" name="affiliate_link" value="{{.Form.AffiliateLink}}"
            placeholder="https://" inputmode="url" required>
-    <span class="hint">앱에서 복사한 링크를 그대로 붙여넣으세요.</span>
-  </label>
+
+    {{/* 선택한 제휴사의 것만 보인다. 자바스크립트가 없으면 둘 다 보이고,
+         그래도 링크를 붙여넣는 데는 지장이 없다. */}}
+    {{range $.Affiliates}}
+    <div class="link-help" data-aff-help="{{.Key}}"{{if ne .Key $.Form.Affiliate}} hidden{{end}}>
+      <a class="btn btn-small" href="{{.HelpURL}}" target="_blank" rel="noopener">{{.HelpLabel}} ↗</a>
+      <span class="hint">{{.HelpHint}}</span>
+    </div>
+    {{end}}
+  </div>
 
   <label class="field">
     <span class="label">상품 페이지 <em>(선택)</em></span>
