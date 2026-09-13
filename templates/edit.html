@@ -14,27 +14,24 @@
 
   {{if .Post.ProductName}}
   <p class="product-name">{{.Post.ProductName}}</p>
-  {{if .Post.ProductURL}}
-  <a class="btn btn-small" href="{{.Post.ProductURL}}" target="_blank" rel="noopener">{{affiliateKo .Post.Affiliate}}에서 이 상품 찾기 ↗</a>
   {{end}}
-  {{end}}
+  <div class="link-help">
+    {{if .Post.ProductURL}}
+    <a class="btn btn-small" href="{{.Post.ProductURL}}" target="_blank" rel="noopener">{{affiliateKo .Post.Affiliate}}에서 이 상품 찾기 ↗</a>
+    {{end}}
+    {{with affiliateOf .Post.Affiliate}}
+    <a class="btn btn-small" href="{{.HelpURL}}" target="_blank" rel="noopener">{{.HelpLabel}} ↗</a>
+    {{end}}
+  </div>
 
-  <form class="form" method="post" action="/drafts/{{.Post.ID}}/link">
+  <!-- 저장 버튼 없이 붙여넣거나 칸을 벗어나면 저장한다 (app.js). -->
+  <form class="form" method="post" action="/drafts/{{.Post.ID}}/link" id="link-form">
     <label class="field">
       <span class="label">제휴 링크</span>
       <input type="url" name="affiliate_link" value="{{.Post.AffiliateLink}}"
              placeholder="https://" inputmode="url">
-      <span class="hint">상품을 찾아 제휴 링크를 만든 뒤 붙여넣으세요. 게시할 때 마지막 답글로 올라가요.</span>
+      <span class="hint">상품을 찾아 제휴 링크를 만든 뒤 붙여넣으면 바로 저장돼요. 게시할 때 마지막 답글로 올라가요.</span>
     </label>
-    {{with affiliateOf .Post.Affiliate}}
-    <div class="link-help">
-      <a class="btn btn-small" href="{{.HelpURL}}" target="_blank" rel="noopener">{{.HelpLabel}} ↗</a>
-      <span class="hint">{{.HelpHint}}</span>
-    </div>
-    {{end}}
-    <div class="actions">
-      <button class="btn btn-small" type="submit">링크 저장</button>
-    </div>
   </form>
 </section>
 

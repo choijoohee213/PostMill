@@ -501,7 +501,8 @@ func (a *app) handlePublish(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 게시는 백그라운드로 넘기고 바로 목록으로 보낸다.
+	// 게시 중인 글은 검수대기 탭에 있고, 거기서만 폴링이 돈다.
 	a.startPublish(p, u.AccessToken, text, reply)
 
-	http.Redirect(w, r, "/?tab=published", http.StatusSeeOther)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
