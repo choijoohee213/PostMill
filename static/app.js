@@ -75,6 +75,32 @@ if (document.getElementById('poll')) {
   });
 })();
 
+// 편집 화면: 제휴 링크는 붙여넣거나 칸을 벗어나면 바로 저장한다.
+// 게시 버튼과 마지막 답글 미리보기가 저장된 링크를 따르므로 페이지째 다시 받는다.
+// 자바스크립트가 없어도 엔터로 저장된다.
+(function () {
+  var form = document.getElementById('link-form');
+  if (!form) return;
+  var input = form.querySelector('input[name="affiliate_link"]');
+  var saved = input.value;
+  var sent = false;
+
+  function save() {
+    if (sent || input.value.trim() === saved.trim()) return;
+    sent = true;
+    form.requestSubmit();
+  }
+
+  input.addEventListener('input', function (e) {
+    // 저장 전에 게시를 누르면 예전 링크로 올라가므로 막아둔다.
+    document.querySelectorAll('[data-publish] button').forEach(function (b) {
+      b.disabled = true;
+    });
+    if (e.inputType === 'insertFromPaste') save();
+  });
+  input.addEventListener('change', save);
+})();
+
 // 로그인 화면: 버튼으로 입력 칸을 갈아끼운다.
 // 자바스크립트가 없으면 모든 칸이 그대로 보여 여전히 로그인할 수 있다.
 (function () {
