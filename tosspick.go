@@ -337,10 +337,9 @@ func (a *app) categoryListOrParent(ctx context.Context, token string, id int64) 
 
 // tossCandidates는 고를 만한 상품을 추린다.
 //
-// 품절, 곧 끝나는 특가, 최근에 다룬 상품, 중복은 뺀다.
-// slot이 0 이상이면 slots개로 나눈 몫 중 하나만 준다. 동시에 만드는 초안이
-// 서로 뭘 골랐는지 모르므로, 후보를 겹치지 않게 나눠 같은 상품을 피한다.
-func tossCandidates(products []TossProduct, avoid []string, now time.Time, slot, slots int) []TossProduct {
+// 품절, 곧 끝나는 특가, 최근에 다룬 상품, 중복은 뺀다. 초안 여러 장을 한 번에
+// 쓰게 하므로 겹치지 않게 고르는 것은 모델에게 맡긴다.
+func tossCandidates(products []TossProduct, avoid []string, now time.Time) []TossProduct {
 	skip := make(map[string]bool, len(avoid))
 	for _, name := range avoid {
 		skip[name] = true
@@ -362,17 +361,10 @@ func tossCandidates(products []TossProduct, avoid []string, now time.Time, slot,
 		all = append(all, p)
 	}
 
-	var out []TossProduct
-	for i, p := range all {
-		if slot >= 0 && slots > 0 && i%slots != slot {
-			continue
-		}
-		out = append(out, p)
-		if len(out) == tossPromptLimit {
-			break
-		}
+	if len(all) > tossPromptLimit {
+		all = all[:tossPromptLimit]
 	}
-	return out
+	return all
 }
 
 // errNoTossCandidates는 고를 상품이 하나도 남지 않은 경우다.
@@ -411,38 +403,60 @@ func (a *app) ensureSubTag(ctx context.Context, token, userID string) (string, e
 	return tag, nil
 }
 
-// suggestToss는 토스 목록에서 상품을 고르게 하고, 그 상품의 쉐어링크를 발급한다.
-func (a *app) suggestToss(ctx context.Context, userID, source string, avoid []string, slot int, hook hookType) (*AutoDraft, error) {
-	token, products, err := a.tossProducts(ctx, userID, source)
-	if err != nil {
-		return nil, err
-	}
-	candidates := tossCandidates(products, avoid, time.Now(), slot, autoBatchSize)
-	if len(candidates) == 0 {
-		return nil, errNoTossCandidates
+// suggestToss는 토스 목록에서 서로 다른 상품을 골라 초안 여러 장을 한 번에 쓰게 하고,
+// 고른 상품마다 쉐어링크를 발급한다. 장마다 결과나 실패 이유를 돌려준다.
+func (a *app) suggestToss(ctx context.Context, userID, source string, avoid []string, specs []draftSpec) ([]*AutoDraft, []error) {
+	drafts := make([]*AutoDraft, len(specs))
+	fails := make([]error, len(specs))
+	failAll := func(err error) ([]*AutoDraft, []error) {
+		for i := range fails {
+			fails[i] = err
+		}
+		return drafts, fails
 	}
 
-	i, d, err := a.gemini.SuggestFromToss(ctx, candidates, hook)
+	token, products, err := a.tossProducts(ctx, userID, source)
 	if err != nil {
-		return nil, err
+		return failAll(err)
 	}
-	picked := candidates[i]
+	candidates := tossCandidates(products, avoid, time.Now())
+	if len(candidates) == 0 {
+		return failAll(errNoTossCandidates)
+	}
+
+	hooks := make([]hookType, len(specs))
+	for i, sp := range specs {
+		hooks[i] = sp.Hook
+	}
+	picks, written, err := a.gemini.SuggestFromTossBatch(ctx, candidates, hooks)
+	if err != nil {
+		return failAll(err)
+	}
 
 	tag, err := a.ensureSubTag(ctx, token, userID)
 	if err != nil {
 		a.forgetTossToken(ctx, err)
-		return nil, err
+		return failAll(err)
 	}
-	link, err := a.toss.CreateLink(ctx, token, picked.TacaItemID, tag)
-	if err != nil {
-		a.forgetTossToken(ctx, err)
-		return nil, err
+	for i, d := range written {
+		if d == nil || picks[i] < 0 {
+			continue
+		}
+		picked := candidates[picks[i]]
+		link, err := a.toss.CreateLink(ctx, token, picked.TacaItemID, tag)
+		if err != nil {
+			// 발급이 막힌 상품은 그 장만 실패로 둔다.
+			a.forgetTossToken(ctx, err)
+			fails[i] = err
+			continue
+		}
+		d.AffiliateLink = link
+		d.TacaItemID = picked.TacaItemID
+		// 추적이 없는 일반 주소다. 상품을 확인하는 버튼에만 쓰고 게시하지 않는다.
+		d.ProductURL = picked.ProductURL
+		drafts[i] = d
 	}
-	d.AffiliateLink = link
-	d.TacaItemID = picked.TacaItemID
-	// 추적이 없는 일반 주소다. 상품을 확인하는 버튼에만 쓰고 게시하지 않는다.
-	d.ProductURL = picked.ProductURL
-	return d, nil
+	return drafts, fails
 }
 
 // lockedTossToken은 목록 조회와 겹치지 않게 토큰만 받는다.
@@ -497,6 +511,9 @@ func draftFailMessage(err error) string {
 		return "토스 API가 접근을 거부했어요. 키와 출발지 IP를 확인해주세요."
 	case errors.As(err, &te) && te.Code == tossQuotaExceeded:
 		return "오늘 토스 API 사용량을 다 썼어요. 자정에 풀려요."
+	case errors.Is(err, errDailyQuota):
+		// Gemini 무료 한도는 태평양 시간 자정에 초기화된다.
+		return "오늘 AI 사용량을 다 썼어요. 한국 시간 오후 4~5시쯤 다시 풀려요."
 	default:
 		return "초안을 만들지 못했습니다."
 	}

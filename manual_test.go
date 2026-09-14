@@ -295,7 +295,7 @@ func TestHandleAuto_토스_카테고리를_고르면_그_카테고리에서_고�
 	}
 	a := manualApp(t, f)
 	a.gemini, _ = fakeGemini(t, func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, okBody("1\n---\n본문\n---\n답글하나"))
+		fmt.Fprint(w, okBody("1\n---\n본문\n---\n답글\n=====\n2\n---\n본문\n---\n답글\n=====\n3\n---\n본문\n---\n답글"))
 	})
 	const user = "auto-cat"
 
