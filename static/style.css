@@ -1220,3 +1220,10 @@ main {
   font: inherit;
   font-size: 14px;
 }
+
+/* 토스 카테고리 단계별 선택 */
+.cat-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}

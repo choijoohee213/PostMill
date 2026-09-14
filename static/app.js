@@ -216,7 +216,8 @@ if (document.getElementById('poll')) {
   }
 
   function value(n) {
-    var el = form.querySelector('[name="' + n + '"]:checked') || form.querySelector('select[name="' + n + '"]');
+    var el = form.querySelector('[name="' + n + '"]:checked') ||
+      form.querySelector('select[name="' + n + '"], input[type="hidden"][name="' + n + '"]');
     return el ? el.value : '';
   }
 
@@ -230,6 +231,61 @@ if (document.getElementById('poll')) {
     names.forEach(function (n) {
       try { localStorage.setItem('create.' + n, value(n)); } catch (e) {}
     });
+  }
+
+  // 토스 카테고리: 대분류 → 중분류 → 소분류를 차례로 고른다. 아래 단계는 "전체"가
+  // 기본이라 원하는 만큼만 내려가면 된다. 고른 가장 깊은 카테고리를 제출한다.
+  var picker = document.getElementById('cat-picker');
+  var treeData = document.getElementById('toss-categories');
+  if (picker && treeData) {
+    var tree = JSON.parse(treeData.textContent) || [];
+    var labels = ['대분류', '중분류', '소분류', '세분류', '세세분류'];
+    var hidden = document.createElement('input');
+    hidden.type = 'hidden';
+    hidden.name = 'category';
+    form.appendChild(hidden);
+
+    var findPath = function (nodes, id, path) {
+      for (var i = 0; i < nodes.length; i++) {
+        var p = path.concat(nodes[i].id);
+        if (nodes[i].id === id) return p;
+        var found = findPath(nodes[i].children || [], id, p);
+        if (found) return found;
+      }
+      return null;
+    };
+
+    var drawPicker = function (path) {
+      picker.textContent = '';
+      var nodes = tree;
+      for (var depth = 0; nodes && nodes.length; depth++) {
+        var sel = document.createElement('select');
+        sel.setAttribute('aria-label', labels[depth] || '하위 분류');
+        if (depth > 0) sel.add(new Option('전체', ''));
+        nodes.forEach(function (n) { sel.add(new Option(n.name, n.id)); });
+        if (depth === 0 && path.length === 0) path = [nodes[0].id];
+        sel.value = path[depth] !== undefined ? String(path[depth]) : '';
+        (function (d) {
+          sel.addEventListener('change', function (e) {
+            e.stopPropagation();
+            var next = path.slice(0, d);
+            if (this.value) next.push(Number(this.value));
+            drawPicker(next);
+            sync();
+          });
+        })(depth);
+        picker.appendChild(sel);
+        if (path[depth] === undefined) break;
+        var chosen = nodes.filter(function (n) { return n.id === path[depth]; })[0];
+        nodes = chosen && chosen.children;
+      }
+      hidden.value = path.length ? 'cat:' + path[path.length - 1] : '';
+    };
+
+    var saved = null;
+    try { saved = localStorage.getItem('create.category'); } catch (e) {}
+    var savedID = saved && saved.indexOf('cat:') === 0 ? Number(saved.slice(4)) : NaN;
+    drawPicker((!hasError && findPath(tree, savedID, [])) || []);
   }
 
   form.addEventListener('change', sync);
