@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"log"
 	"sync"
 	"time"
 )
@@ -39,6 +40,7 @@ type tossState struct {
 	fetchedAt time.Time
 	best      []TossProduct
 	deals     []TossProduct
+	subTags   map[string]bool // 이번에 떠 있는 동안 등록을 확인한 subTag
 }
 
 // tossToken은 저장된 토큰을 쓰고, 없거나 곧 만료되면 새로 받는다.
@@ -156,8 +158,41 @@ func tossCandidates(best, deals []TossProduct, avoid []string, now time.Time, sl
 // errNoTossCandidates는 고를 상품이 하나도 남지 않은 경우다.
 var errNoTossCandidates = errors.New("고를 만한 토스 상품이 없다")
 
+// tossSubTag는 PostMill 사용자(스레드 계정)의 subTag다. 토스 키는 사업자당
+// 하나라 여러 명이 쓰면 실적이 섞이므로, 링크를 계정별 subTag로 발급해 나눈다.
+// 스레드 사용자 id는 숫자이고 관리자는 "admin"이라 허용 문자 규칙에 맞는다.
+func tossSubTag(userID string) string { return "u-" + userID }
+
+// ensureSubTag는 사용자의 subTag를 등록한다. 한 번 등록한 것은 서버가
+// 떠 있는 동안 기억해 다시 부르지 않는다. 다시 불러도 해는 없다.
+func (a *app) ensureSubTag(ctx context.Context, token, userID string) (string, error) {
+	tag := tossSubTag(userID)
+	a.tossState.mu.Lock()
+	done := a.tossState.subTags[tag]
+	a.tossState.mu.Unlock()
+	if done {
+		return tag, nil
+	}
+
+	label := ""
+	if u, ok, err := a.db.GetThreadsUser(ctx, userID); err == nil && ok && u.Username != "" {
+		label = "@" + u.Username
+	}
+	if err := a.toss.EnsureSubTag(ctx, token, tag, label); err != nil {
+		return "", err
+	}
+
+	a.tossState.mu.Lock()
+	if a.tossState.subTags == nil {
+		a.tossState.subTags = map[string]bool{}
+	}
+	a.tossState.subTags[tag] = true
+	a.tossState.mu.Unlock()
+	return tag, nil
+}
+
 // suggestToss는 토스 목록에서 상품을 고르게 하고, 그 상품의 쉐어링크를 발급한다.
-func (a *app) suggestToss(ctx context.Context, avoid []string, slot int) (*AutoDraft, error) {
+func (a *app) suggestToss(ctx context.Context, userID string, avoid []string, slot int) (*AutoDraft, error) {
 	token, best, deals, err := a.tossLists(ctx)
 	if err != nil {
 		return nil, err
@@ -173,15 +208,63 @@ func (a *app) suggestToss(ctx context.Context, avoid []string, slot int) (*AutoD
 	}
 	picked := candidates[i]
 
-	link, err := a.toss.CreateLink(ctx, token, picked.TacaItemID)
+	tag, err := a.ensureSubTag(ctx, token, userID)
+	if err != nil {
+		a.forgetTossToken(ctx, err)
+		return nil, err
+	}
+	link, err := a.toss.CreateLink(ctx, token, picked.TacaItemID, tag)
 	if err != nil {
 		a.forgetTossToken(ctx, err)
 		return nil, err
 	}
 	d.AffiliateLink = link
+	d.TacaItemID = picked.TacaItemID
 	// 추적이 없는 일반 주소다. 상품을 확인하는 버튼에만 쓰고 게시하지 않는다.
 	d.ProductURL = picked.ProductURL
 	return d, nil
+}
+
+// lockedTossToken은 목록 조회와 겹치지 않게 토큰만 받는다.
+func (a *app) lockedTossToken(ctx context.Context) (string, error) {
+	a.tossState.mu.Lock()
+	defer a.tossState.mu.Unlock()
+	return a.tossToken(ctx)
+}
+
+// tossUnavailableReason은 자동으로 고른 토스 상품을 지금 살 수 없으면 그 이유를 돌려준다.
+//
+// 초안을 만들고 게시하기까지 시간이 지나 그사이 품절되거나 판매가 끝날 수 있다.
+// 그런 링크를 올리면 수익도 없고 보는 사람만 헛걸음한다.
+// 토스 API가 응답하지 않을 때는 게시를 막지 않는다. 토스 장애로 게시까지
+// 멈추면 안 되고, 상품은 대개 그대로 살 수 있다.
+func (a *app) tossUnavailableReason(ctx context.Context, p *Post) string {
+	// 사용자가 링크를 직접 바꿨으면 그 링크가 어느 상품인지 알 수 없다.
+	if a.toss == nil || p.Affiliate != AffiliateToss || !p.LinkAuto || p.TacaItemID == 0 {
+		return ""
+	}
+	token, err := a.lockedTossToken(ctx)
+	if err != nil {
+		log.Printf("게시 전 상품 확인 생략 (id=%d): %v", p.ID, err)
+		return ""
+	}
+	found, notFound, err := a.toss.ProductDetails(ctx, token, []int64{p.TacaItemID})
+	if err != nil {
+		a.forgetTossToken(ctx, err)
+		log.Printf("게시 전 상품 확인 생략 (id=%d): %v", p.ID, err)
+		return ""
+	}
+	for _, id := range notFound {
+		if id == p.TacaItemID {
+			return "판매가 끝났거나 지금 살 수 없는 상품이라 게시를 멈췄어요. 재생성해서 다른 상품으로 바꿔주세요."
+		}
+	}
+	for _, st := range found {
+		if st.TacaItemID == p.TacaItemID && st.IsSoldOut {
+			return "품절된 상품이라 게시를 멈췄어요. 재생성해서 다른 상품으로 바꿔주세요."
+		}
+	}
+	return ""
 }
 
 // draftFailMessage는 자동 초안 실패를 사용자가 알아볼 말로 바꾼다.

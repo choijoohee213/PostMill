@@ -1,0 +1,50 @@
+{{template "head" .}}
+
+<h1 class="page-title">토스 실적</h1>
+
+{{if not .Enabled}}
+<p class="empty">토스 API가 연결되지 않았어요.</p>
+{{else}}
+
+<div class="stats-bar">
+  <a class="btn btn-small" href="/stats?month={{.PrevMonth}}" aria-label="이전 달">←</a>
+  <span class="stats-month">{{.Month}}</span>
+  {{if .NextMonth}}<a class="btn btn-small" href="/stats?month={{.NextMonth}}" aria-label="다음 달">→</a>{{else}}<span class="btn btn-small is-disabled" aria-hidden="true">→</span>{{end}}
+</div>
+
+{{if .Error}}
+<p class="error">{{.Error}}</p>
+{{else}}
+<div class="stats-grid">
+  <div class="stat"><span class="stat-label">클릭</span><strong>{{won .Perf.Summary.ClickCount}}</strong></div>
+  <div class="stat"><span class="stat-label">판매</span><strong>{{won .Perf.Summary.SoldQuantity}}개</strong>{{if .Perf.Summary.RefundedQuantity}}<span class="stat-sub">환불 {{won .Perf.Summary.RefundedQuantity}}</span>{{end}}</div>
+  <div class="stat"><span class="stat-label">예상 수익금</span><strong>{{won .Perf.Summary.ExpectedCommissionAmount}}원</strong></div>
+  <div class="stat"><span class="stat-label">정산 확정</span><strong>{{won .Settled}}원</strong></div>
+</div>
+<p class="hint">{{.Range}} 결제 기준 잠정 실적이에요. 취소·환불되면 줄 수 있어요. 정산 확정은 이 달에 구매확정된 금액(세전)이에요.{{if .LastUpdated}} 마지막 집계 {{.LastUpdated}}.{{end}}</p>
+
+{{if .Rows}}
+<ul class="cards stats-rows">
+  {{range .Rows}}
+  <li class="card">
+    <div class="card-link">
+      <p class="stats-name">{{if .Name}}{{.Name}}{{else}}상품 {{.ProductID}}{{end}}</p>
+      <p class="stats-nums">판매 {{won .Sold}}개{{if .Refunded}} · 환불 {{won .Refunded}}{{end}} · 예상 {{won .Expected}}원{{if .Indirect}} · <span title="링크로 들어와 다른 상품을 산 몫">간접 포함</span>{{end}}</p>
+      {{if .PostID}}
+      <div class="card-links">
+        <a href="/drafts/{{.PostID}}">내 글 보기</a>
+        {{if .Permalink}}<a href="{{.Permalink}}" target="_blank" rel="noopener">Threads에서 보기</a>{{end}}
+      </div>
+      {{end}}
+    </div>
+  </li>
+  {{end}}
+</ul>
+{{else}}
+<p class="empty">이 기간에 판매된 상품이 없어요.</p>
+{{end}}
+{{end}}
+
+{{end}}
+
+{{template "foot" .}}

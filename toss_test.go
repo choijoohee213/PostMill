@@ -24,6 +24,22 @@ type fakeTossServer struct {
 	best     []TossProduct
 	deals    []TossProduct
 	linkFail string // 비어 있지 않으면 링크 발급을 이 코드로 실패시킨다
+
+	subTagBodies []map[string]any
+	subTagStatus string // 비면 CREATED
+
+	soldOut     map[int64]bool
+	gone        map[int64]bool // 판매 종료로 조회되지 않는 상품
+	detailFail  bool
+	detailCalls int
+
+	perfQueries []string
+	perfPages   []string // 쪽마다 돌려줄 success JSON
+	settleMonth string
+
+	subTagList   []string
+	perfBySubTag map[string]string // perfPages가 없을 때 subTagId별로 돌려줄 success JSON ("" = 전체)
+	settleBySub  map[string]int64
 }
 
 func (f *fakeTossServer) client(t *testing.T) *Toss {
@@ -69,7 +85,57 @@ func (f *fakeTossServer) client(t *testing.T) *Toss {
 				"shortUrl":   fmt.Sprintf("https://toss.im/_m/%v", body["tacaItemId"]),
 				"originUrl":  "https://toss.shopping/t/1?k=x",
 			})
+		case "/products/detail":
+			f.detailCalls++
+			if f.detailFail {
+				w.WriteHeader(http.StatusBadGateway)
+				return
+			}
+			var items []map[string]any
+			var notFound []int64
+			for _, s := range strings.Split(r.URL.Query().Get("tacaItemIds"), ",") {
+				var id int64
+				fmt.Sscan(s, &id)
+				if f.gone[id] {
+					notFound = append(notFound, id)
+					continue
+				}
+				items = append(items, map[string]any{"tacaItemId": id, "isSoldOut": f.soldOut[id]})
+			}
+			success(map[string]any{"items": items, "notFoundIds": notFound})
+		case "/sub-tags/create":
+			var body map[string]any
+			json.NewDecoder(r.Body).Decode(&body)
+			f.subTagBodies = append(f.subTagBodies, body)
+			st := f.subTagStatus
+			if st == "" {
+				st = "CREATED"
+			}
+			success(map[string]any{"results": []map[string]any{{"status": st}}})
+		case "/performance":
+			f.perfQueries = append(f.perfQueries, r.URL.RawQuery)
+			if f.perfPages == nil {
+				fmt.Fprintf(w, `{"resultType":"SUCCESS","success":%s}`, f.perfBySubTag[r.URL.Query().Get("subTagId")])
+				return
+			}
+			page := f.perfPages[len(f.perfQueries)-1]
+			fmt.Fprintf(w, `{"resultType":"SUCCESS","success":%s}`, page)
+		case "/sub-tags":
+			var list []map[string]string
+			for _, id := range f.subTagList {
+				list = append(list, map[string]string{"subTagId": id})
+			}
+			success(map[string]any{"subTags": list, "hasNext": false})
 		default:
+			if strings.HasPrefix(r.URL.Path, "/settlements/") {
+				f.settleMonth = strings.TrimPrefix(r.URL.Path, "/settlements/")
+				amount := int64(41200)
+				if f.settleBySub != nil {
+					amount = f.settleBySub[r.URL.Query().Get("subTagId")]
+				}
+				success(map[string]any{"summary": map[string]any{"commissionAmount": amount}, "items": []any{}})
+				return
+			}
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
@@ -100,7 +166,7 @@ func TestToss_토큰을_받고_목록과_링크를_부른다(t *testing.T) {
 		t.Fatalf("best=%+v err=%v", best, err)
 	}
 
-	link, err := c.CreateLink(ctx, token, 7)
+	link, err := c.CreateLink(ctx, token, 7, "u-1")
 	if err != nil || link != "https://toss.im/_m/7" {
 		t.Fatalf("link=%q err=%v", link, err)
 	}
@@ -120,7 +186,7 @@ func TestToss_HTTP_200이어도_FAIL이면_실패다(t *testing.T) {
 	f := &fakeTossServer{linkFail: tossAccessDenied}
 	c := f.client(t)
 
-	_, err := c.CreateLink(context.Background(), "tok", 1)
+	_, err := c.CreateLink(context.Background(), "tok", 1, "")
 	var te *tossError
 	if !errors.As(err, &te) || te.Code != tossAccessDenied || te.HTTPStatus != 200 {
 		t.Fatalf("err=%v", err)
@@ -227,7 +293,7 @@ func TestSuggest_토스는_고른_상품의_쉐어링크까지_넣는다(t *test
 	id, _ := db.CreateDraft(ctx, user, AffiliateToss, "", "", "")
 	t.Cleanup(func() { db.DeletePost(ctx, user, id) })
 
-	a.suggest(id, AffiliateToss, nil, "", -1)
+	a.suggest(id, user, AffiliateToss, nil, "", -1)
 
 	p, _ := db.GetPost(ctx, user, id)
 	if p.Status != StatusPending || p.ErrorMsg != "" {
@@ -243,9 +309,22 @@ func TestSuggest_토스는_고른_상품의_쉐어링크까지_넣는다(t *test
 	// 토큰과 목록은 다시 받지 않는다.
 	id2, _ := db.CreateDraft(ctx, user, AffiliateToss, "", "", "")
 	t.Cleanup(func() { db.DeletePost(ctx, user, id2) })
-	a.suggest(id2, AffiliateToss, nil, "", -1)
+	a.suggest(id2, user, AffiliateToss, nil, "", -1)
 	if f.tokenCalls != 1 || f.listCalls != 2 {
 		t.Fatalf("토큰 %d번, 목록 %d번. 토큰 1번·목록 2번(베스트+특가)이어야 한다", f.tokenCalls, f.listCalls)
+	}
+
+	// 링크는 계정 subTag로 발급하고, subTag 등록은 한 번만 한다.
+	if len(f.subTagBodies) != 1 {
+		t.Fatalf("subTag 등록 %d번", len(f.subTagBodies))
+	}
+	for _, body := range f.linkBodies {
+		if body["subTagId"] != "u-"+user {
+			t.Fatalf("발급 요청=%+v, subTagId가 계정 것이어야 한다", body)
+		}
+	}
+	if p.TacaItemID != 42 || !p.LinkAuto {
+		t.Fatalf("taca_item_id=%d link_auto=%v", p.TacaItemID, p.LinkAuto)
 	}
 }
 
@@ -262,7 +341,7 @@ func TestSuggest_토스_API가_거부하면_이유를_남긴다(t *testing.T) {
 	id, _ := db.CreateDraft(ctx, user, AffiliateToss, "", "", "")
 	t.Cleanup(func() { db.DeletePost(ctx, user, id) })
 
-	a.suggest(id, AffiliateToss, nil, "", -1)
+	a.suggest(id, user, AffiliateToss, nil, "", -1)
 
 	p, _ := db.GetPost(ctx, user, id)
 	if p.Status != StatusGenerating || !strings.Contains(p.ErrorMsg, "IP") {
@@ -310,5 +389,223 @@ func TestAutoLink_자동_링크는_버리고_직접_넣은_링크는_남긴다(t
 	}
 	if p, _ := db.GetPost(ctx, user, edited); p.AffiliateLink != "https://toss.im/_m/mine" {
 		t.Errorf("재생성 후 직접 링크=%q", p.AffiliateLink)
+	}
+}
+
+func TestTossSubTag_허용_문자만_쓴다(t *testing.T) {
+	for _, id := range []string{"17841400000000000", "admin"} {
+		tag := tossSubTag(id)
+		if len(tag) > 64 {
+			t.Fatalf("%q는 64자를 넘는다", tag)
+		}
+		for _, c := range tag {
+			ok := c == '-' || c == '_' || c == '.' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
+			if !ok {
+				t.Fatalf("%q에 허용되지 않는 문자 %q", tag, c)
+			}
+		}
+	}
+}
+
+func TestToss_subTag_등록이_형식_오류면_실패다(t *testing.T) {
+	f := &fakeTossServer{subTagStatus: "INVALID_FORMAT"}
+	if err := f.client(t).EnsureSubTag(context.Background(), "tok", "u 1", ""); err == nil {
+		t.Fatal("형식 오류를 성공으로 봤다")
+	}
+	f2 := &fakeTossServer{subTagStatus: "ALREADY_EXISTS"}
+	if err := f2.client(t).EnsureSubTag(context.Background(), "tok", "u-1", "@me"); err != nil {
+		t.Fatalf("이미 있는 subTag는 성공이어야 한다: %v", err)
+	}
+	if f2.subTagBodies[0]["subTags"].([]any)[0].(map[string]any)["label"] != "@me" {
+		t.Fatalf("등록 요청=%+v", f2.subTagBodies[0])
+	}
+}
+
+func TestToss_실적은_여러_쪽을_이어_받는다(t *testing.T) {
+	f := &fakeTossServer{perfPages: []string{
+		`{"summary":{"clickCount":10,"expectedCommissionAmount":900},"items":[{"productId":1,"expectedCommissionAmount":500}],"hasNext":true,"nextCursor":"c2"}`,
+		`{"summary":{"clickCount":10,"expectedCommissionAmount":900},"items":[{"productId":2,"expectedCommissionAmount":400}],"hasNext":false,"nextCursor":null}`,
+	}}
+	c := f.client(t)
+	from := time.Date(2026, 9, 1, 0, 0, 0, 0, kst)
+	perf, err := c.Performance(context.Background(), "tok", from, from.AddDate(0, 0, 13), "u-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(perf.Items) != 2 || perf.Summary.ClickCount != 10 {
+		t.Fatalf("perf=%+v", perf)
+	}
+	if !strings.Contains(f.perfQueries[0], "fromDate=2026-09-01") || !strings.Contains(f.perfQueries[0], "toDate=2026-09-14") ||
+		!strings.Contains(f.perfQueries[0], "subTagId=u-1") || !strings.Contains(f.perfQueries[1], "cursor=c2") {
+		t.Fatalf("요청=%v", f.perfQueries)
+	}
+
+	settled, err := c.SettledCommission(context.Background(), "tok", "2026-08", "")
+	if err != nil || settled != 41200 || f.settleMonth != "2026-08" {
+		t.Fatalf("settled=%d month=%q err=%v", settled, f.settleMonth, err)
+	}
+}
+
+func TestMergeStatsRows_상품별로_합치고_수익순으로(t *testing.T) {
+	rows := mergeStatsRows([]PerformanceItem{
+		{ProductID: 1, ProductName: "A", Attribution: "DIRECT", SoldQuantity: 1, ExpectedCommissionAmount: 100},
+		{ProductID: 2, ProductName: "B", Attribution: "DIRECT", SoldQuantity: 2, ExpectedCommissionAmount: 300},
+		{ProductID: 1, ProductName: "A", Attribution: "INDIRECT", SoldQuantity: 3, ExpectedCommissionAmount: 250},
+	})
+	if len(rows) != 2 || rows[0].ProductID != 1 || rows[0].Sold != 4 || rows[0].Expected != 350 || !rows[0].Indirect {
+		t.Fatalf("rows=%+v", rows)
+	}
+	if rows[1].Indirect {
+		t.Error("직접만 있는 상품에 간접 표시")
+	}
+	for in, want := range map[int64]string{0: "0", 999: "999", 1000: "1,000", 1234567: "1,234,567", -41200: "-41,200"} {
+		if got := won(in); got != want {
+			t.Errorf("won(%d)=%q, %q여야 한다", in, got, want)
+		}
+	}
+}
+
+func TestTossUnavailableReason(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	f := &fakeTossServer{soldOut: map[int64]bool{11: true}, gone: map[int64]bool{12: true}}
+	a := &app{db: db, toss: f.client(t)}
+
+	post := func(item int64, auto bool) *Post {
+		return &Post{Affiliate: AffiliateToss, LinkAuto: auto, TacaItemID: item}
+	}
+	if r := a.tossUnavailableReason(ctx, post(11, true)); !strings.Contains(r, "품절") {
+		t.Errorf("품절 상품: %q", r)
+	}
+	if r := a.tossUnavailableReason(ctx, post(12, true)); !strings.Contains(r, "판매가 끝났") {
+		t.Errorf("판매 종료 상품: %q", r)
+	}
+	if r := a.tossUnavailableReason(ctx, post(13, true)); r != "" {
+		t.Errorf("살 수 있는 상품을 막았다: %q", r)
+	}
+
+	calls := f.detailCalls
+	if r := a.tossUnavailableReason(ctx, post(11, false)); r != "" || f.detailCalls != calls {
+		t.Errorf("직접 넣은 링크까지 확인했다: %q", r)
+	}
+	if r := a.tossUnavailableReason(ctx, &Post{Affiliate: AffiliateCoupang}); r != "" || f.detailCalls != calls {
+		t.Errorf("쿠팡 글을 확인했다: %q", r)
+	}
+
+	// 토스가 응답하지 않으면 게시를 막지 않는다.
+	f.detailFail = true
+	if r := a.tossUnavailableReason(ctx, post(11, true)); r != "" {
+		t.Errorf("토스 장애로 게시를 막았다: %q", r)
+	}
+}
+
+func TestPublishHandler_품절된_토스_상품은_게시하지_않는다(t *testing.T) {
+	threads := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("Threads를 불렀다: %s", r.URL.Path)
+	}))
+	defer threads.Close()
+	a := newTestApp(t, threads)
+	f := &fakeTossServer{soldOut: map[int64]bool{77: true}}
+	a.toss = f.client(t)
+	ctx := context.Background()
+
+	const user = "toss-soldout"
+	a.db.SaveThreadsUser(ctx, ThreadsUser{UserID: user, AccessToken: "tok", ExpiresAt: nowPlusDays(30)})
+	id, _ := a.db.CreateDraft(ctx, user, AffiliateToss, "", "", "")
+	t.Cleanup(func() { a.db.DeletePost(ctx, user, id) })
+	a.db.SetAutoGenerated(ctx, id, AutoDraft{ProductName: "상품", Body: "본문", AffiliateLink: "https://toss.im/_m/77", TacaItemID: 77})
+
+	login := httptest.NewRecorder()
+	a.session.issue(login, user, false)
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /drafts/{id}/publish", a.handlePublish)
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/drafts/%d/publish", id), nil)
+	req.AddCookie(cookieFrom(t, login))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if !strings.Contains(w.Body.String(), "품절") {
+		t.Fatalf("응답=%d %q", w.Code, w.Body.String())
+	}
+	if p, _ := a.db.GetPost(ctx, user, id); p.Status != StatusPending {
+		t.Fatalf("상태=%s, 게시를 시작하면 안 된다", p.Status)
+	}
+}
+
+// 주인 계정은 subTag 없이 발급한 옛 링크까지 제 몫이다. 전체에서 다른 계정 몫을 뺀다.
+func TestAccountStats_주인은_전체에서_다른_계정을_뺀다(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	orig, _, _ := db.GetState(ctx, stateTossOwner)
+	db.SetState(ctx, stateTossOwner, "owner")
+	t.Cleanup(func() { db.SetState(ctx, stateTossOwner, orig) })
+
+	f := &fakeTossServer{
+		subTagList: []string{"u-owner", "u-sister"},
+		perfBySubTag: map[string]string{
+			"": `{"summary":{"clickCount":100,"soldQuantity":10,"expectedCommissionAmount":1000},"items":[
+				{"productId":1,"attribution":"DIRECT","soldQuantity":6,"expectedCommissionAmount":600},
+				{"productId":2,"attribution":"DIRECT","soldQuantity":4,"expectedCommissionAmount":400}]}`,
+			"u-sister": `{"summary":{"clickCount":30,"soldQuantity":4,"expectedCommissionAmount":400},"items":[
+				{"productId":2,"attribution":"DIRECT","soldQuantity":4,"expectedCommissionAmount":400}]}`,
+		},
+		settleBySub: map[string]int64{"": 5000, "u-sister": 1200},
+	}
+	a := &app{db: db, toss: f.client(t)}
+	from := time.Date(2026, 9, 1, 0, 0, 0, 0, kst)
+
+	perf, settled, err := a.accountStats(ctx, "tok", "owner", from, from, "2026-09")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perf.Summary.ClickCount != 70 || perf.Summary.SoldQuantity != 6 || perf.Summary.ExpectedCommissionAmount != 600 || settled != 3800 {
+		t.Fatalf("주인 실적=%+v 정산=%d", perf.Summary, settled)
+	}
+	if len(perf.Items) != 1 || perf.Items[0].ProductID != 1 {
+		t.Fatalf("주인 상품=%+v, 동생 몫 상품은 빠져야 한다", perf.Items)
+	}
+
+	sister, settled, err := a.accountStats(ctx, "tok", "sister", from, from, "2026-09")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sister.Summary.SoldQuantity != 4 || settled != 1200 {
+		t.Fatalf("다른 계정 실적=%+v 정산=%d", sister.Summary, settled)
+	}
+
+	// subTag를 아직 등록하지 않은 계정은 토스에 묻지 않고 0이다 (묻으면 거절된다).
+	before := len(f.perfQueries)
+	none, settled, err := a.accountStats(ctx, "tok", "newbie", from, from, "2026-09")
+	if err != nil || none.Summary.SoldQuantity != 0 || settled != 0 || len(f.perfQueries) != before {
+		t.Fatalf("미등록 계정 실적=%+v 정산=%d err=%v 조회=%d번", none.Summary, settled, err, len(f.perfQueries)-before)
+	}
+}
+
+func TestTossOwner_처음_토스_글을_쓴_계정을_기억한다(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	orig, _, _ := db.GetState(ctx, stateTossOwner)
+	db.SetState(ctx, stateTossOwner, "")
+	t.Cleanup(func() { db.SetState(ctx, stateTossOwner, orig) })
+
+	first, _ := db.CreateDraft(ctx, "owner-first", AffiliateToss, "", "", "")
+	t.Cleanup(func() { db.DeletePost(ctx, "owner-first", first) })
+	second, _ := db.CreateDraft(ctx, "owner-second", AffiliateToss, "", "", "")
+	t.Cleanup(func() { db.DeletePost(ctx, "owner-second", second) })
+
+	a := &app{db: db}
+	owner, err := a.tossOwner(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 테스트 DB에 더 오래된 토스 글이 없다면 처음 만든 계정이 주인이다.
+	if want, _ := db.FirstTossAuthor(ctx); owner != want {
+		t.Fatalf("주인=%q, %q여야 한다", owner, want)
+	}
+
+	// 옛 글을 지워도 주인은 바뀌지 않는다.
+	db.DeletePost(ctx, "owner-first", first)
+	if again, _ := a.tossOwner(ctx); again != owner {
+		t.Fatalf("글을 지우자 주인이 %q에서 %q로 바뀌었다", owner, again)
 	}
 }

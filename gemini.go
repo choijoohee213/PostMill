@@ -364,6 +364,7 @@ type AutoDraft struct {
 	ProductName   string
 	ProductURL    string
 	AffiliateLink string // 토스 API로 발급한 쉐어링크. 쿠팡은 비어 있다
+	TacaItemID    int64  // 토스 API로 고른 상품. 쿠팡은 0
 	Body          string
 	Detail        string
 	Detail2       string

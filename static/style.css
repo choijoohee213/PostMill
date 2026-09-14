@@ -1049,3 +1049,61 @@ main {
   object-fit: cover;
   border-radius: 10px;
 }
+
+/* 토스 실적 */
+.stats-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.stats-month {
+  flex: 1;
+  text-align: center;
+  font-weight: 600;
+}
+
+.btn.is-disabled { opacity: .35; pointer-events: none; }
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 14px 0 6px;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+}
+
+.stat-label, .stat-sub {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.stat strong {
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-rows { margin-top: 14px; }
+
+.stats-name {
+  margin: 0 0 4px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.stats-nums {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
