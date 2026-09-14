@@ -113,6 +113,7 @@ type listData struct {
 	BatchSize  int
 	Missing    int    // 검수대기가 세 장에 못 미치는 만큼
 	LastAff    string // 추가 버튼이 쓸 제휴사
+	Query      string // 게시완료 검색어
 }
 
 func (a *app) handleList(w http.ResponseWriter, r *http.Request) {
@@ -127,7 +128,13 @@ func (a *app) handleList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	posts, err := a.db.ListByStatus(r.Context(), a.session.userID(r), current.Statuses...)
+	// 검색은 게시완료에만 둔다. 검수대기는 빈 자리 계산이 목록 개수에 달려 있다.
+	query := ""
+	if current.Key == "published" {
+		query = strings.TrimSpace(r.URL.Query().Get("q"))
+	}
+
+	posts, err := a.db.ListByStatus(r.Context(), a.session.userID(r), query, current.Statuses...)
 	if err != nil {
 		log.Printf("목록 조회 실패: %v", err)
 		http.Error(w, "목록을 불러오지 못했습니다", http.StatusInternalServerError)
@@ -164,6 +171,7 @@ func (a *app) handleList(w http.ResponseWriter, r *http.Request) {
 		BatchSize:  autoBatchSize,
 		Missing:    missing,
 		LastAff:    lastAff,
+		Query:      query,
 	})
 }
 

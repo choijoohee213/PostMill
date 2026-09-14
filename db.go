@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	_ "embed"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -108,11 +109,16 @@ func (db *DB) GetPost(ctx context.Context, userID string, id int64) (*Post, erro
 }
 
 // ListByStatus는 주어진 상태들의 게시물을 최신순으로 반환한다.
-func (db *DB) ListByStatus(ctx context.Context, userID string, statuses ...string) ([]*Post, error) {
+// query가 있으면 본문·답글·상품명에 그 말이 들어간 글만 고른다.
+func (db *DB) ListByStatus(ctx context.Context, userID, query string, statuses ...string) ([]*Post, error) {
+	// %와 _는 LIKE에서 특수 문자라 글자 그대로 찾도록 막는다.
+	pattern := "%" + strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(query) + "%"
 	rows, err := db.pool.Query(ctx,
 		`SELECT `+postColumns+` FROM posts
-		 WHERE user_id = $1 AND status = ANY($2) ORDER BY created_at DESC`,
-		userID, statuses)
+		 WHERE user_id = $1 AND status = ANY($2)
+		   AND ($3 = '' OR body ILIKE $4 OR detail ILIKE $4 OR detail2 ILIKE $4 OR product_name ILIKE $4)
+		 ORDER BY created_at DESC`,
+		userID, statuses, query, pattern)
 	if err != nil {
 		return nil, err
 	}
