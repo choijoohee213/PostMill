@@ -253,7 +253,7 @@ func (a *app) handleRetry(w http.ResponseWriter, r *http.Request) {
 		log.Printf("재시도 준비 실패: %v", err)
 	}
 	if !p.IsManual() {
-		go a.suggest(id, p.UserID, p.Affiliate, a.recentProducts(r.Context(), p.UserID), defaultPick(p.Affiliate), -1)
+		go a.suggest(id, p.UserID, p.Affiliate, a.recentProducts(r.Context(), p.UserID), defaultPick(p.Affiliate), -1, randomHook())
 	} else {
 		go a.generate(id, p.Affiliate, p.ProductName, p.Memo)
 	}
@@ -282,7 +282,7 @@ func (a *app) generate(id int64, affiliate, productName, memo string) {
 		return
 	}
 
-	body, detail, err := a.gemini.GenerateDraft(ctx, affiliate, manualMemo(productName, memo), room)
+	body, detail, err := a.gemini.GenerateDraft(ctx, affiliate, manualMemo(productName, memo), room, randomHook())
 	if err != nil {
 		fail("초안을 만들지 못했습니다.", err)
 		return

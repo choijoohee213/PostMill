@@ -278,7 +278,7 @@ func TestSuggestFromToss_번호로_상품을_고른다(t *testing.T) {
 	})
 	products := []TossProduct{{DisplayName: "첫째"}, {DisplayName: "둘째"}}
 
-	i, d, err := g.SuggestFromToss(context.Background(), products)
+	i, d, err := g.SuggestFromToss(context.Background(), products, hookTypes[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -314,7 +314,7 @@ func TestSuggest_토스는_고른_상품의_쉐어링크까지_넣는다(t *test
 	id, _ := db.CreateDraft(ctx, user, AffiliateToss, "", "", "")
 	t.Cleanup(func() { db.DeletePost(ctx, user, id) })
 
-	a.suggest(id, user, AffiliateToss, nil, "", -1)
+	a.suggest(id, user, AffiliateToss, nil, "", -1, hookTypes[0])
 
 	p, _ := db.GetPost(ctx, user, id)
 	if p.Status != StatusPending || p.ErrorMsg != "" {
@@ -330,7 +330,7 @@ func TestSuggest_토스는_고른_상품의_쉐어링크까지_넣는다(t *test
 	// 토큰과 목록은 다시 받지 않는다.
 	id2, _ := db.CreateDraft(ctx, user, AffiliateToss, "", "", "")
 	t.Cleanup(func() { db.DeletePost(ctx, user, id2) })
-	a.suggest(id2, user, AffiliateToss, nil, "", -1)
+	a.suggest(id2, user, AffiliateToss, nil, "", -1, hookTypes[0])
 	if f.tokenCalls != 1 || f.listCalls != 1 {
 		t.Fatalf("토큰 %d번, 목록 %d번. 토큰 1번·목록 1번(베스트)이어야 한다", f.tokenCalls, f.listCalls)
 	}
@@ -362,7 +362,7 @@ func TestSuggest_토스_API가_거부하면_이유를_남긴다(t *testing.T) {
 	id, _ := db.CreateDraft(ctx, user, AffiliateToss, "", "", "")
 	t.Cleanup(func() { db.DeletePost(ctx, user, id) })
 
-	a.suggest(id, user, AffiliateToss, nil, "", -1)
+	a.suggest(id, user, AffiliateToss, nil, "", -1, hookTypes[0])
 
 	p, _ := db.GetPost(ctx, user, id)
 	if p.Status != StatusGenerating || !strings.Contains(p.ErrorMsg, "IP") {

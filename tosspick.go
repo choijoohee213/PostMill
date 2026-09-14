@@ -377,7 +377,7 @@ func (a *app) ensureSubTag(ctx context.Context, token, userID string) (string, e
 }
 
 // suggestToss는 토스 목록에서 상품을 고르게 하고, 그 상품의 쉐어링크를 발급한다.
-func (a *app) suggestToss(ctx context.Context, userID, source string, avoid []string, slot int) (*AutoDraft, error) {
+func (a *app) suggestToss(ctx context.Context, userID, source string, avoid []string, slot int, hook hookType) (*AutoDraft, error) {
 	token, products, err := a.tossProducts(ctx, userID, source)
 	if err != nil {
 		return nil, err
@@ -387,7 +387,7 @@ func (a *app) suggestToss(ctx context.Context, userID, source string, avoid []st
 		return nil, errNoTossCandidates
 	}
 
-	i, d, err := a.gemini.SuggestFromToss(ctx, candidates)
+	i, d, err := a.gemini.SuggestFromToss(ctx, candidates, hook)
 	if err != nil {
 		return nil, err
 	}

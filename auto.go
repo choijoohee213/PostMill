@@ -66,6 +66,8 @@ func (a *app) handleAuto(w http.ResponseWriter, r *http.Request) {
 	// 쿠팡은 분야를 고르지 않았으면 무작위 지점부터 돌려써서 세 장이 서로 다른
 	// 분야가 되게 한다. 토스는 고른 목록(베스트·특가·내 실적·카테고리)에서 고른다.
 	start := rand.IntN(len(coupangAreas))
+	// 세 장이 서로 다른 훅으로 시작하게 한다.
+	hookStart := rand.IntN(len(hookTypes))
 	area := r.FormValue("area")
 	source := r.FormValue("source")
 	if source == "cat" {
@@ -87,7 +89,7 @@ func (a *app) handleAuto(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		go a.suggest(id, userID, affiliate, avoid, pick, i)
+		go a.suggest(id, userID, affiliate, avoid, pick, i, hookTypes[(hookStart+i)%len(hookTypes)])
 	}
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -108,7 +110,7 @@ func (a *app) handleAutoOne(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
-	go a.suggest(id, userID, affiliate, a.recentProducts(r.Context(), userID), defaultPick(affiliate), -1)
+	go a.suggest(id, userID, affiliate, a.recentProducts(r.Context(), userID), defaultPick(affiliate), -1, randomHook())
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
@@ -133,7 +135,7 @@ func (a *app) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	if err := a.db.DeleteImages(r.Context(), p.UserID, p.ID); err != nil {
 		log.Printf("재생성 사진 삭제 실패 (id=%d): %v", p.ID, err)
 	}
-	go a.suggest(p.ID, p.UserID, p.Affiliate, a.recentProducts(r.Context(), p.UserID), defaultPick(p.Affiliate), -1)
+	go a.suggest(p.ID, p.UserID, p.Affiliate, a.recentProducts(r.Context(), p.UserID), defaultPick(p.Affiliate), -1, randomHook())
 
 	http.Redirect(w, r, backTo(r), http.StatusSeeOther)
 }
@@ -165,19 +167,19 @@ func (a *app) recentProducts(ctx context.Context, userID string) []string {
 // 토스는 API가 연결돼 있으면 pick(베스트·특가·내 실적·카테고리)의 실제 상품에서
 // 고르고 쉐어링크까지 발급한다. 쿠팡은 pick이 모델에게 줄 분야다.
 // slot은 동시에 만드는 초안끼리 후보를 나누는 번호다 (-1이면 전부).
-func (a *app) suggest(id int64, userID, affiliate string, avoid []string, pick string, slot int) {
+func (a *app) suggest(id int64, userID, affiliate string, avoid []string, pick string, slot int, hook hookType) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 
 	var d *AutoDraft
 	var err error
 	if affiliate == AffiliateToss && a.toss != nil {
-		d, err = a.suggestToss(ctx, userID, pick, avoid, slot)
+		d, err = a.suggestToss(ctx, userID, pick, avoid, slot, hook)
 	} else {
 		if isTossSource(pick) {
 			pick = defaultPick(AffiliateCoupang) // 토스 API가 없으면 분야 힌트로 바꾼다
 		}
-		d, err = a.gemini.SuggestDraft(ctx, affiliate, avoid, pick)
+		d, err = a.gemini.SuggestDraft(ctx, affiliate, avoid, pick, hook)
 	}
 	if err != nil {
 		log.Printf("자동 초안 실패 (id=%d): %v", id, err)
