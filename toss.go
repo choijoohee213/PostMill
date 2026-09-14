@@ -209,6 +209,36 @@ func (t *Toss) EnsureSubTag(ctx context.Context, token, subTagID, label string) 
 	}
 }
 
+// ListSubTags는 등록돼 있는 subTag id를 모두 받는다. 삭제된 것은 빠진다.
+func (t *Toss) ListSubTags(ctx context.Context, token string) ([]string, error) {
+	var ids []string
+	cursor := ""
+	for page := 0; page < tossMaxPages; page++ {
+		path := "sub-tags"
+		if cursor != "" {
+			path += "?cursor=" + url.QueryEscape(cursor)
+		}
+		var out struct {
+			SubTags []struct {
+				SubTagID string `json:"subTagId"`
+			} `json:"subTags"`
+			NextCursor string `json:"nextCursor"`
+			HasNext    bool   `json:"hasNext"`
+		}
+		if err := t.do(ctx, token, http.MethodGet, path, nil, &out); err != nil {
+			return nil, err
+		}
+		for _, st := range out.SubTags {
+			ids = append(ids, st.SubTagID)
+		}
+		if !out.HasNext || out.NextCursor == "" {
+			break
+		}
+		cursor = out.NextCursor
+	}
+	return ids, nil
+}
+
 // Performance는 결제일 기준 잠정 실적이다. 클릭은 합계에만 있다.
 type Performance struct {
 	Summary struct {

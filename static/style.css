@@ -1066,30 +1066,6 @@ main {
 
 .btn.is-disabled { opacity: .35; pointer-events: none; }
 
-.stats-scope {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 6px;
-}
-
-.stats-scope a {
-  flex: 1;
-  padding: 8px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--card);
-  color: var(--muted);
-  text-align: center;
-  text-decoration: none;
-  font-size: 14px;
-}
-
-.stats-scope a.is-active {
-  border-color: var(--accent);
-  color: var(--text);
-  font-weight: 600;
-}
-
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

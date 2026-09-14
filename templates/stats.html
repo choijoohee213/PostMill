@@ -7,16 +7,10 @@
 {{else}}
 
 <div class="stats-bar">
-  <a class="btn btn-small" href="/stats?month={{.PrevMonth}}{{if .All}}&scope=all{{end}}" aria-label="이전 달">←</a>
+  <a class="btn btn-small" href="/stats?month={{.PrevMonth}}" aria-label="이전 달">←</a>
   <span class="stats-month">{{.Month}}</span>
-  {{if .NextMonth}}<a class="btn btn-small" href="/stats?month={{.NextMonth}}{{if .All}}&scope=all{{end}}" aria-label="다음 달">→</a>{{else}}<span class="btn btn-small is-disabled" aria-hidden="true">→</span>{{end}}
+  {{if .NextMonth}}<a class="btn btn-small" href="/stats?month={{.NextMonth}}" aria-label="다음 달">→</a>{{else}}<span class="btn btn-small is-disabled" aria-hidden="true">→</span>{{end}}
 </div>
-
-<div class="stats-scope" role="tablist">
-  <a class="{{if not .All}}is-active{{end}}" href="/stats?month={{.Month}}">내 계정</a>
-  <a class="{{if .All}}is-active{{end}}" href="/stats?month={{.Month}}&scope=all">전체 합산</a>
-</div>
-{{if not .All}}<p class="hint">계정별 실적은 계정 구분을 붙인 뒤 발급한 링크부터 잡혀요. 그전 링크는 전체 합산에서 보세요.</p>{{end}}
 
 {{if .Error}}
 <p class="error">{{.Error}}</p>

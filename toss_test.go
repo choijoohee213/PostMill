@@ -36,6 +36,10 @@ type fakeTossServer struct {
 	perfQueries []string
 	perfPages   []string // 쪽마다 돌려줄 success JSON
 	settleMonth string
+
+	subTagList   []string
+	perfBySubTag map[string]string // perfPages가 없을 때 subTagId별로 돌려줄 success JSON ("" = 전체)
+	settleBySub  map[string]int64
 }
 
 func (f *fakeTossServer) client(t *testing.T) *Toss {
@@ -110,12 +114,26 @@ func (f *fakeTossServer) client(t *testing.T) *Toss {
 			success(map[string]any{"results": []map[string]any{{"status": st}}})
 		case "/performance":
 			f.perfQueries = append(f.perfQueries, r.URL.RawQuery)
+			if f.perfPages == nil {
+				fmt.Fprintf(w, `{"resultType":"SUCCESS","success":%s}`, f.perfBySubTag[r.URL.Query().Get("subTagId")])
+				return
+			}
 			page := f.perfPages[len(f.perfQueries)-1]
 			fmt.Fprintf(w, `{"resultType":"SUCCESS","success":%s}`, page)
+		case "/sub-tags":
+			var list []map[string]string
+			for _, id := range f.subTagList {
+				list = append(list, map[string]string{"subTagId": id})
+			}
+			success(map[string]any{"subTags": list, "hasNext": false})
 		default:
 			if strings.HasPrefix(r.URL.Path, "/settlements/") {
 				f.settleMonth = strings.TrimPrefix(r.URL.Path, "/settlements/")
-				success(map[string]any{"summary": map[string]any{"commissionAmount": 41200}, "items": []any{}})
+				amount := int64(41200)
+				if f.settleBySub != nil {
+					amount = f.settleBySub[r.URL.Query().Get("subTagId")]
+				}
+				success(map[string]any{"summary": map[string]any{"commissionAmount": amount}, "items": []any{}})
 				return
 			}
 			w.WriteHeader(http.StatusNotFound)
@@ -511,5 +529,83 @@ func TestPublishHandler_품절된_토스_상품은_게시하지_않는다(t *tes
 	}
 	if p, _ := a.db.GetPost(ctx, user, id); p.Status != StatusPending {
 		t.Fatalf("상태=%s, 게시를 시작하면 안 된다", p.Status)
+	}
+}
+
+// 주인 계정은 subTag 없이 발급한 옛 링크까지 제 몫이다. 전체에서 다른 계정 몫을 뺀다.
+func TestAccountStats_주인은_전체에서_다른_계정을_뺀다(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	orig, _, _ := db.GetState(ctx, stateTossOwner)
+	db.SetState(ctx, stateTossOwner, "owner")
+	t.Cleanup(func() { db.SetState(ctx, stateTossOwner, orig) })
+
+	f := &fakeTossServer{
+		subTagList: []string{"u-owner", "u-sister"},
+		perfBySubTag: map[string]string{
+			"": `{"summary":{"clickCount":100,"soldQuantity":10,"expectedCommissionAmount":1000},"items":[
+				{"productId":1,"attribution":"DIRECT","soldQuantity":6,"expectedCommissionAmount":600},
+				{"productId":2,"attribution":"DIRECT","soldQuantity":4,"expectedCommissionAmount":400}]}`,
+			"u-sister": `{"summary":{"clickCount":30,"soldQuantity":4,"expectedCommissionAmount":400},"items":[
+				{"productId":2,"attribution":"DIRECT","soldQuantity":4,"expectedCommissionAmount":400}]}`,
+		},
+		settleBySub: map[string]int64{"": 5000, "u-sister": 1200},
+	}
+	a := &app{db: db, toss: f.client(t)}
+	from := time.Date(2026, 9, 1, 0, 0, 0, 0, kst)
+
+	perf, settled, err := a.accountStats(ctx, "tok", "owner", from, from, "2026-09")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perf.Summary.ClickCount != 70 || perf.Summary.SoldQuantity != 6 || perf.Summary.ExpectedCommissionAmount != 600 || settled != 3800 {
+		t.Fatalf("주인 실적=%+v 정산=%d", perf.Summary, settled)
+	}
+	if len(perf.Items) != 1 || perf.Items[0].ProductID != 1 {
+		t.Fatalf("주인 상품=%+v, 동생 몫 상품은 빠져야 한다", perf.Items)
+	}
+
+	sister, settled, err := a.accountStats(ctx, "tok", "sister", from, from, "2026-09")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sister.Summary.SoldQuantity != 4 || settled != 1200 {
+		t.Fatalf("다른 계정 실적=%+v 정산=%d", sister.Summary, settled)
+	}
+
+	// subTag를 아직 등록하지 않은 계정은 토스에 묻지 않고 0이다 (묻으면 거절된다).
+	before := len(f.perfQueries)
+	none, settled, err := a.accountStats(ctx, "tok", "newbie", from, from, "2026-09")
+	if err != nil || none.Summary.SoldQuantity != 0 || settled != 0 || len(f.perfQueries) != before {
+		t.Fatalf("미등록 계정 실적=%+v 정산=%d err=%v 조회=%d번", none.Summary, settled, err, len(f.perfQueries)-before)
+	}
+}
+
+func TestTossOwner_처음_토스_글을_쓴_계정을_기억한다(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	orig, _, _ := db.GetState(ctx, stateTossOwner)
+	db.SetState(ctx, stateTossOwner, "")
+	t.Cleanup(func() { db.SetState(ctx, stateTossOwner, orig) })
+
+	first, _ := db.CreateDraft(ctx, "owner-first", AffiliateToss, "", "", "")
+	t.Cleanup(func() { db.DeletePost(ctx, "owner-first", first) })
+	second, _ := db.CreateDraft(ctx, "owner-second", AffiliateToss, "", "", "")
+	t.Cleanup(func() { db.DeletePost(ctx, "owner-second", second) })
+
+	a := &app{db: db}
+	owner, err := a.tossOwner(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 테스트 DB에 더 오래된 토스 글이 없다면 처음 만든 계정이 주인이다.
+	if want, _ := db.FirstTossAuthor(ctx); owner != want {
+		t.Fatalf("주인=%q, %q여야 한다", owner, want)
+	}
+
+	// 옛 글을 지워도 주인은 바뀌지 않는다.
+	db.DeletePost(ctx, "owner-first", first)
+	if again, _ := a.tossOwner(ctx); again != owner {
+		t.Fatalf("글을 지우자 주인이 %q에서 %q로 바뀌었다", owner, again)
 	}
 }

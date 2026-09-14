@@ -510,3 +510,16 @@ func (db *DB) PostsByTacaItems(ctx context.Context, userID string, ids []int64) 
 	}
 	return out, rows.Err()
 }
+
+// FirstTossAuthor는 PostMill에서 처음 토스 글을 만든 스레드 계정이다. 없으면 빈 문자열.
+func (db *DB) FirstTossAuthor(ctx context.Context) (string, error) {
+	var userID string
+	err := db.pool.QueryRow(ctx,
+		`SELECT user_id FROM posts
+		 WHERE affiliate = $1 AND user_id NOT IN ('', $2)
+		 ORDER BY id LIMIT 1`, AffiliateToss, adminUserID).Scan(&userID)
+	if err == pgx.ErrNoRows {
+		return "", nil
+	}
+	return userID, err
+}

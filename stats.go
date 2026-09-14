@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,7 +22,6 @@ type statsData struct {
 	Month     string // YYYY-MM
 	PrevMonth string
 	NextMonth string // 이번 달이면 비어 있다
-	All       bool   // 계정 전체 합산으로 보는지
 	Range     string // 화면에 보여줄 조회 기간
 
 	Perf        *Performance
@@ -42,12 +42,9 @@ type statsRow struct {
 	Permalink string // 그 글의 Threads 주소
 }
 
-// handleStats는 토스 쉐어링크 실적을 월 단위로 보여준다.
-//
-// 기본은 내 계정(subTag) 실적이다. subTag를 붙이기 전에 발급한 링크는
-// 계정별로 잡히지 않으므로 전체 합산으로도 볼 수 있게 한다.
+// handleStats는 내 스레드 계정의 토스 쉐어링크 실적을 월 단위로 보여준다.
 func (a *app) handleStats(w http.ResponseWriter, r *http.Request) {
-	data := statsData{Enabled: a.toss != nil, All: r.URL.Query().Get("scope") == "all"}
+	data := statsData{Enabled: a.toss != nil}
 	if !data.Enabled {
 		a.render(w, "stats.html", data)
 		return
@@ -72,17 +69,9 @@ func (a *app) handleStats(w http.ResponseWriter, r *http.Request) {
 	data.Range = from.Format("1월 2일") + " ~ " + to.Format("1월 2일")
 
 	userID := a.session.userID(r)
-	subTag := tossSubTag(userID)
-	if data.All {
-		subTag = ""
-	}
-
 	token, err := a.lockedTossToken(r.Context())
 	if err == nil {
-		data.Perf, err = a.toss.Performance(r.Context(), token, from, to, subTag)
-	}
-	if err == nil {
-		data.Settled, err = a.toss.SettledCommission(r.Context(), token, data.Month, subTag)
+		data.Perf, data.Settled, err = a.accountStats(r.Context(), token, userID, from, to, data.Month)
 	}
 	if err != nil {
 		a.forgetTossToken(r.Context(), err)
@@ -99,6 +88,114 @@ func (a *app) handleStats(w http.ResponseWriter, r *http.Request) {
 	data.Rows = mergeStatsRows(data.Perf.Items)
 	a.attachPosts(r.Context(), userID, data.Rows)
 	a.render(w, "stats.html", data)
+}
+
+// stateTossOwner는 계정 구분(subTag) 없이 발급된 링크의 실적을 가져가는 계정이다.
+// subTag를 붙이기 전에는 한 계정만 토스를 썼으므로 그 계정의 몫으로 본다.
+const stateTossOwner = "toss_untagged_owner"
+
+// tossOwner는 처음 토스 글을 만든 계정을 주인으로 정하고 기억한다.
+// 기억해 두지 않으면 옛 글을 지웠을 때 주인이 바뀔 수 있다.
+func (a *app) tossOwner(ctx context.Context) (string, error) {
+	if owner, ok, err := a.db.GetState(ctx, stateTossOwner); err != nil || (ok && owner != "") {
+		return owner, err
+	}
+	owner, err := a.db.FirstTossAuthor(ctx)
+	if err != nil || owner == "" {
+		return owner, err
+	}
+	return owner, a.db.SetState(ctx, stateTossOwner, owner)
+}
+
+// accountStats는 한 계정의 실적과 정산 확정 수익금을 구한다.
+//
+// 보통은 그 계정 subTag의 실적이다. 주인 계정은 subTag 없이 발급한 옛 링크까지
+// 제 몫이므로, 거래처 전체에서 다른 계정 subTag의 실적을 뺀 값을 쓴다.
+// 등록되지 않은 subTag로 조회하면 토스가 거절하므로 등록된 것만 조회한다.
+func (a *app) accountStats(ctx context.Context, token, userID string, from, to time.Time, month string) (*Performance, int64, error) {
+	tags, err := a.toss.ListSubTags(ctx, token)
+	if err != nil {
+		return nil, 0, err
+	}
+	owner, err := a.tossOwner(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	mine := tossSubTag(userID)
+
+	if userID != owner {
+		if !slices.Contains(tags, mine) {
+			return &Performance{}, 0, nil
+		}
+		perf, err := a.toss.Performance(ctx, token, from, to, mine)
+		if err != nil {
+			return nil, 0, err
+		}
+		settled, err := a.toss.SettledCommission(ctx, token, month, mine)
+		return perf, settled, err
+	}
+
+	perf, err := a.toss.Performance(ctx, token, from, to, "")
+	if err != nil {
+		return nil, 0, err
+	}
+	settled, err := a.toss.SettledCommission(ctx, token, month, "")
+	if err != nil {
+		return nil, 0, err
+	}
+	for _, tag := range tags {
+		if tag == mine {
+			continue
+		}
+		other, err := a.toss.Performance(ctx, token, from, to, tag)
+		if err != nil {
+			return nil, 0, err
+		}
+		otherSettled, err := a.toss.SettledCommission(ctx, token, month, tag)
+		if err != nil {
+			return nil, 0, err
+		}
+		subtractPerf(perf, other)
+		settled -= otherSettled
+	}
+	return perf, settled, nil
+}
+
+// subtractPerf는 total에서 other 몫을 뺀다. 상품 행은 상품·기여 방식이 같은 것끼리 빼고,
+// 남는 게 없는 행은 지운다.
+func subtractPerf(total, other *Performance) {
+	s, o := &total.Summary, other.Summary
+	s.ClickCount -= o.ClickCount
+	s.SoldQuantity -= o.SoldQuantity
+	s.RefundedQuantity -= o.RefundedQuantity
+	s.NetPaymentAmount -= o.NetPaymentAmount
+	s.ExpectedCommissionAmount -= o.ExpectedCommissionAmount
+	s.ConfirmedCommissionAmount -= o.ConfirmedCommissionAmount
+
+	type key struct {
+		id   int64
+		attr string
+	}
+	minus := map[key]PerformanceItem{}
+	for _, it := range other.Items {
+		k := key{it.ProductID, it.Attribution}
+		m := minus[k]
+		m.SoldQuantity += it.SoldQuantity
+		m.RefundedQuantity += it.RefundedQuantity
+		m.ExpectedCommissionAmount += it.ExpectedCommissionAmount
+		minus[k] = m
+	}
+	kept := total.Items[:0]
+	for _, it := range total.Items {
+		m := minus[key{it.ProductID, it.Attribution}]
+		it.SoldQuantity -= m.SoldQuantity
+		it.RefundedQuantity -= m.RefundedQuantity
+		it.ExpectedCommissionAmount -= m.ExpectedCommissionAmount
+		if it.SoldQuantity > 0 || it.RefundedQuantity > 0 || it.ExpectedCommissionAmount != 0 {
+			kept = append(kept, it)
+		}
+	}
+	total.Items = kept
 }
 
 // mergeStatsRows는 같은 상품의 직접·간접 기여 행을 합치고 예상 수익금 순으로 둔다.
