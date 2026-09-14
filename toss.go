@@ -54,6 +54,7 @@ type TossProduct struct {
 	ReviewScore   float64 `json:"reviewScore"`
 	ReviewCount   int     `json:"reviewCount"`
 	EndAt         string  `json:"endAt"` // 하루특가에만 있다
+	CategoryIDs   []int64 `json:"categoryIds"`
 }
 
 // tossError는 토스가 실패로 응답한 경우다. HTTP 200이어도 실패일 수 있다.
@@ -158,29 +159,67 @@ func (t *Toss) CreateLink(ctx context.Context, token string, tacaItemID int64, s
 	return "", fmt.Errorf("토스가 링크를 돌려주지 않았다")
 }
 
-// ProductStatus는 게시 직전에 확인하는 상품 상태다.
-type ProductStatus struct {
-	TacaItemID int64 `json:"tacaItemId"`
-	IsSoldOut  bool  `json:"isSoldOut"`
+// ProductDetail은 상품 상세 조회에서 쓰는 필드다.
+type ProductDetail struct {
+	TacaItemID  int64   `json:"tacaItemId"`
+	TacaID      int64   `json:"tacaId"`
+	DisplayName string  `json:"displayName"`
+	ProductURL  string  `json:"productUrl"`
+	IsSoldOut   bool    `json:"isSoldOut"`
+	CategoryIDs []int64 `json:"categoryIds"`
 }
 
-// ProductDetails는 상품들의 최신 상태를 본다. 판매가 끝났거나 노출이 막힌 상품은
-// 목록에서 빠지고 notFound에 담긴다.
-func (t *Toss) ProductDetails(ctx context.Context, token string, ids []int64) (found []ProductStatus, notFound []int64, err error) {
+// ProductDetails는 옵션 ID(tacaItemId)로 상품의 최신 상태를 본다. 판매가 끝났거나
+// 노출이 막힌 상품은 목록에서 빠지고 notFound에 담긴다. 한 번에 30건까지다.
+func (t *Toss) ProductDetails(ctx context.Context, token string, ids []int64) (found []ProductDetail, notFound []int64, err error) {
+	return t.productDetails(ctx, token, "tacaItemIds", ids)
+}
+
+// ProductDetailsByTacaIDs는 상품 페이지 주소에 있는 상품 ID(tacaId)로 조회한다.
+// 그 상품의 지금 대표 옵션이 돌아온다.
+func (t *Toss) ProductDetailsByTacaIDs(ctx context.Context, token string, ids []int64) (found []ProductDetail, notFound []int64, err error) {
+	return t.productDetails(ctx, token, "tacaIds", ids)
+}
+
+func (t *Toss) productDetails(ctx context.Context, token, param string, ids []int64) ([]ProductDetail, []int64, error) {
 	strs := make([]string, len(ids))
 	for i, id := range ids {
 		strs[i] = strconv.FormatInt(id, 10)
 	}
 	var out struct {
-		Items       []ProductStatus `json:"items"`
+		Items       []ProductDetail `json:"items"`
 		NotFoundIDs []int64         `json:"notFoundIds"`
 	}
 	q := url.Values{}
-	q.Set("tacaItemIds", strings.Join(strs, ","))
+	q.Set(param, strings.Join(strs, ","))
 	if err := t.do(ctx, token, http.MethodGet, "products/detail?"+q.Encode(), nil, &out); err != nil {
 		return nil, nil, err
 	}
 	return out.Items, out.NotFoundIDs, nil
+}
+
+// TossCategory는 카테고리 트리의 한 마디다.
+type TossCategory struct {
+	CategoryID  int64          `json:"categoryId"`
+	Level       int            `json:"level"`
+	DisplayName string         `json:"displayName"`
+	Children    []TossCategory `json:"children"`
+}
+
+// Categories는 카테고리 트리를 받는다. 자주 바뀌지 않아 하루 한 번이면 된다.
+func (t *Toss) Categories(ctx context.Context, token string) ([]TossCategory, error) {
+	var out struct {
+		Categories []TossCategory `json:"categories"`
+	}
+	if err := t.do(ctx, token, http.MethodGet, "categories", nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Categories, nil
+}
+
+// CategoryBest는 카테고리 안에서 잘 팔리는 상품이다. 랭킹은 하루 한 번 갱신된다.
+func (t *Toss) CategoryBest(ctx context.Context, token string, categoryID int64, size int) ([]TossProduct, error) {
+	return t.listProducts(ctx, token, "products/best-categories/"+strconv.FormatInt(categoryID, 10), size)
 }
 
 // EnsureSubTag는 subTag를 등록한다. 이미 있으면 아무것도 바꾸지 않으므로 여러 번 불러도 된다.

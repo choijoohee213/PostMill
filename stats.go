@@ -4,7 +4,6 @@ import (
 	"context"
 	"log"
 	"net/http"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -117,58 +116,101 @@ func (a *app) tossOwner(ctx context.Context) (string, error) {
 	return owner, a.db.SetState(ctx, stateTossOwner, owner)
 }
 
-// accountStats는 한 계정의 실적과 정산 확정 수익금을 구한다.
+// accountView는 한 계정의 실적을 어떻게 구할지다.
 //
 // 보통은 그 계정 subTag의 실적이다. 주인 계정은 subTag 없이 발급한 옛 링크까지
 // 제 몫이므로, 거래처 전체에서 다른 계정 subTag의 실적을 뺀 값을 쓴다.
 // 등록되지 않은 subTag로 조회하면 토스가 거절하므로 등록된 것만 조회한다.
-func (a *app) accountStats(ctx context.Context, token, userID string, from, to time.Time, month string) (*Performance, int64, error) {
+type accountView struct {
+	owner      bool
+	mine       string   // 이 계정의 subTag
+	registered bool     // mine이 토스에 등록돼 있는지
+	others     []string // 주인일 때 빼야 할 다른 계정 subTag
+}
+
+func (a *app) accountViewFor(ctx context.Context, token, userID string) (*accountView, error) {
 	tags, err := a.toss.ListSubTags(ctx, token)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	owner, err := a.tossOwner(ctx)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
-	mine := tossSubTag(userID)
-
-	if userID != owner {
-		if !slices.Contains(tags, mine) {
-			return &Performance{}, 0, nil
+	v := &accountView{owner: userID == owner, mine: tossSubTag(userID)}
+	for _, tag := range tags {
+		if tag == v.mine {
+			v.registered = true
+		} else {
+			v.others = append(v.others, tag)
 		}
-		perf, err := a.toss.Performance(ctx, token, from, to, mine)
-		if err != nil {
-			return nil, 0, err
-		}
-		settled, err := a.toss.SettledCommission(ctx, token, month, mine)
-		return perf, settled, err
 	}
+	return v, nil
+}
 
+// accountPerformance는 한 계정의 기간 실적이다.
+func (a *app) accountPerformance(ctx context.Context, token, userID string, from, to time.Time) (*Performance, error) {
+	v, err := a.accountViewFor(ctx, token, userID)
+	if err != nil {
+		return nil, err
+	}
+	return a.performanceFor(ctx, token, v, from, to)
+}
+
+func (a *app) performanceFor(ctx context.Context, token string, v *accountView, from, to time.Time) (*Performance, error) {
+	if !v.owner {
+		if !v.registered {
+			return &Performance{}, nil
+		}
+		return a.toss.Performance(ctx, token, from, to, v.mine)
+	}
 	perf, err := a.toss.Performance(ctx, token, from, to, "")
 	if err != nil {
-		return nil, 0, err
+		return nil, err
+	}
+	for _, tag := range v.others {
+		other, err := a.toss.Performance(ctx, token, from, to, tag)
+		if err != nil {
+			return nil, err
+		}
+		subtractPerf(perf, other)
+	}
+	return perf, nil
+}
+
+func (a *app) settledFor(ctx context.Context, token string, v *accountView, month string) (int64, error) {
+	if !v.owner {
+		if !v.registered {
+			return 0, nil
+		}
+		return a.toss.SettledCommission(ctx, token, month, v.mine)
 	}
 	settled, err := a.toss.SettledCommission(ctx, token, month, "")
 	if err != nil {
+		return 0, err
+	}
+	for _, tag := range v.others {
+		other, err := a.toss.SettledCommission(ctx, token, month, tag)
+		if err != nil {
+			return 0, err
+		}
+		settled -= other
+	}
+	return settled, nil
+}
+
+// accountStats는 한 계정의 실적과 정산 확정 수익금을 구한다.
+func (a *app) accountStats(ctx context.Context, token, userID string, from, to time.Time, month string) (*Performance, int64, error) {
+	v, err := a.accountViewFor(ctx, token, userID)
+	if err != nil {
 		return nil, 0, err
 	}
-	for _, tag := range tags {
-		if tag == mine {
-			continue
-		}
-		other, err := a.toss.Performance(ctx, token, from, to, tag)
-		if err != nil {
-			return nil, 0, err
-		}
-		otherSettled, err := a.toss.SettledCommission(ctx, token, month, tag)
-		if err != nil {
-			return nil, 0, err
-		}
-		subtractPerf(perf, other)
-		settled -= otherSettled
+	perf, err := a.performanceFor(ctx, token, v, from, to)
+	if err != nil {
+		return nil, 0, err
 	}
-	return perf, settled, nil
+	settled, err := a.settledFor(ctx, token, v, month)
+	return perf, settled, err
 }
 
 // subtractPerf는 total에서 other 몫을 뺀다. 상품 행은 상품·기여 방식이 같은 것끼리 빼고,

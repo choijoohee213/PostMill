@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -13,14 +14,34 @@ import (
 // 하루 3~5건 발행하는 도구라 이 정도면 고를 거리가 충분하다.
 const autoBatchSize = 3
 
-// categoryHints는 동시에 만드는 초안들이 서로 다른 쪽을 보게 한다.
-// 셋을 동시에 돌리면 서로 뭘 골랐는지 모르므로 같은 상품이 겹칠 수 있다.
-var categoryHints = []string{
-	"주방이나 요리와 관련된 것",
-	"청소나 정리수납과 관련된 것",
-	"욕실, 세탁, 또는 잠자리와 관련된 것",
-	"외출이나 이동할 때 쓰는 것",
-	"책상이나 전자기기 주변에서 쓰는 것",
+// coupangArea는 쿠팡 AI 초안의 분야다. 쿠팡은 API가 없어 AI가 이 분야 안에서
+// 상품 종류를 제안한다.
+type coupangArea struct {
+	Key   string
+	Label string
+	Hint  string // 모델에게 주는 말
+}
+
+var coupangAreas = []coupangArea{
+	{"kitchen", "주방", "주방이나 요리와 관련된 것"},
+	{"clean", "청소·수납", "청소나 정리수납과 관련된 것"},
+	{"bath", "욕실·세탁", "욕실, 세탁, 또는 잠자리와 관련된 것"},
+	{"out", "외출", "외출이나 이동할 때 쓰는 것"},
+	{"desk", "책상 주변", "책상이나 전자기기 주변에서 쓰는 것"},
+}
+
+func isTossSource(pick string) bool {
+	return pick == TossSourceBest || pick == TossSourceDeal || pick == TossSourceMine ||
+		strings.HasPrefix(pick, tossSourceCat)
+}
+
+// defaultPick은 고를 곳을 따로 정하지 않았을 때 쓴다 (한 장 더, 재생성, 다시 시도).
+// 토스는 베스트, 쿠팡은 아무 분야나.
+func defaultPick(affiliate string) string {
+	if affiliate == AffiliateToss {
+		return TossSourceBest
+	}
+	return coupangAreas[rand.IntN(len(coupangAreas))].Hint
 }
 
 // handleAuto는 AI가 상품 선정부터 본문까지 만든 초안을 여러 개 만든다.
@@ -42,8 +63,14 @@ func (a *app) handleAuto(w http.ResponseWriter, r *http.Request) {
 		log.Printf("기존 자동 초안 정리 실패: %v", err)
 	}
 
-	// 힌트를 무작위 지점부터 돌려써서 버튼을 누를 때마다 분야가 달라지게 한다.
-	start := rand.IntN(len(categoryHints))
+	// 쿠팡은 분야를 고르지 않았으면 무작위 지점부터 돌려써서 세 장이 서로 다른
+	// 분야가 되게 한다. 토스는 고른 목록(베스트·특가·내 실적·카테고리)에서 고른다.
+	start := rand.IntN(len(coupangAreas))
+	area := r.FormValue("area")
+	source := r.FormValue("source")
+	if source == "cat" {
+		source = r.FormValue("category")
+	}
 
 	for i := 0; i < autoBatchSize; i++ {
 		id, err := a.db.CreateDraft(r.Context(), userID, affiliate, "", "", "")
@@ -51,8 +78,16 @@ func (a *app) handleAuto(w http.ResponseWriter, r *http.Request) {
 			log.Printf("자동 초안 생성 실패: %v", err)
 			break
 		}
-		hint := categoryHints[(start+i)%len(categoryHints)]
-		go a.suggest(id, userID, affiliate, avoid, hint, i)
+		pick := source
+		if affiliate != AffiliateToss || a.toss == nil {
+			pick = coupangAreas[(start+i)%len(coupangAreas)].Hint
+			for _, ar := range coupangAreas {
+				if ar.Key == area {
+					pick = ar.Hint
+				}
+			}
+		}
+		go a.suggest(id, userID, affiliate, avoid, pick, i)
 	}
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -73,8 +108,7 @@ func (a *app) handleAutoOne(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
-	go a.suggest(id, userID, affiliate, a.recentProducts(r.Context(), userID),
-		categoryHints[rand.IntN(len(categoryHints))], -1)
+	go a.suggest(id, userID, affiliate, a.recentProducts(r.Context(), userID), defaultPick(affiliate), -1)
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
@@ -83,6 +117,11 @@ func (a *app) handleAutoOne(w http.ResponseWriter, r *http.Request) {
 func (a *app) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	p, ok := a.draftFor(w, r)
 	if !ok {
+		return
+	}
+	// 직접 고른 상품은 그대로 두고 글만 새로 쓴다.
+	if p.IsManual() {
+		a.handleRegenerate(w, r)
 		return
 	}
 	if err := a.db.ResetForRegenerate(r.Context(), p.UserID, p.ID); err != nil {
@@ -94,8 +133,7 @@ func (a *app) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	if err := a.db.DeleteImages(r.Context(), p.UserID, p.ID); err != nil {
 		log.Printf("재생성 사진 삭제 실패 (id=%d): %v", p.ID, err)
 	}
-	go a.suggest(p.ID, p.UserID, p.Affiliate, a.recentProducts(r.Context(), p.UserID),
-		categoryHints[rand.IntN(len(categoryHints))], -1)
+	go a.suggest(p.ID, p.UserID, p.Affiliate, a.recentProducts(r.Context(), p.UserID), defaultPick(p.Affiliate), -1)
 
 	http.Redirect(w, r, backTo(r), http.StatusSeeOther)
 }
@@ -124,18 +162,22 @@ func (a *app) recentProducts(ctx context.Context, userID string) []string {
 
 // suggest는 요청과 무관하게 도는 백그라운드 작업이다.
 //
-// 토스는 API가 연결돼 있으면 실제 베스트·특가 상품에서 고르고 쉐어링크까지
-// 발급한다. slot은 동시에 만드는 초안끼리 후보를 나누는 번호다 (-1이면 전부).
-func (a *app) suggest(id int64, userID, affiliate string, avoid []string, hint string, slot int) {
+// 토스는 API가 연결돼 있으면 pick(베스트·특가·내 실적·카테고리)의 실제 상품에서
+// 고르고 쉐어링크까지 발급한다. 쿠팡은 pick이 모델에게 줄 분야다.
+// slot은 동시에 만드는 초안끼리 후보를 나누는 번호다 (-1이면 전부).
+func (a *app) suggest(id int64, userID, affiliate string, avoid []string, pick string, slot int) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 
 	var d *AutoDraft
 	var err error
 	if affiliate == AffiliateToss && a.toss != nil {
-		d, err = a.suggestToss(ctx, userID, avoid, slot)
+		d, err = a.suggestToss(ctx, userID, pick, avoid, slot)
 	} else {
-		d, err = a.gemini.SuggestDraft(ctx, affiliate, avoid, hint)
+		if isTossSource(pick) {
+			pick = defaultPick(AffiliateCoupang) // 토스 API가 없으면 분야 힌트로 바꾼다
+		}
+		d, err = a.gemini.SuggestDraft(ctx, affiliate, avoid, pick)
 	}
 	if err != nil {
 		log.Printf("자동 초안 실패 (id=%d): %v", id, err)

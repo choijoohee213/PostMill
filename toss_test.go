@@ -37,6 +37,11 @@ type fakeTossServer struct {
 	perfPages   []string // 쪽마다 돌려줄 success JSON
 	settleMonth string
 
+	categories   []TossCategory
+	catBest      map[string][]TossProduct // 카테고리 ID → 베스트
+	detailsByID  map[int64]ProductDetail  // 상세 조회에 돌려줄 상품 (tacaItemId 또는 tacaId 키)
+	detailParams []string
+
 	subTagList   []string
 	perfBySubTag map[string]string // perfPages가 없을 때 subTagId별로 돌려줄 success JSON ("" = 전체)
 	settleBySub  map[string]int64
@@ -91,13 +96,22 @@ func (f *fakeTossServer) client(t *testing.T) *Toss {
 				w.WriteHeader(http.StatusBadGateway)
 				return
 			}
-			var items []map[string]any
+			var items []any
 			var notFound []int64
-			for _, s := range strings.Split(r.URL.Query().Get("tacaItemIds"), ",") {
+			ids := r.URL.Query().Get("tacaItemIds")
+			if ids == "" {
+				ids = r.URL.Query().Get("tacaIds")
+			}
+			f.detailParams = append(f.detailParams, r.URL.RawQuery)
+			for _, s := range strings.Split(ids, ",") {
 				var id int64
 				fmt.Sscan(s, &id)
 				if f.gone[id] {
 					notFound = append(notFound, id)
+					continue
+				}
+				if d, ok := f.detailsByID[id]; ok {
+					items = append(items, d)
 					continue
 				}
 				items = append(items, map[string]any{"tacaItemId": id, "isSoldOut": f.soldOut[id]})
@@ -120,6 +134,8 @@ func (f *fakeTossServer) client(t *testing.T) *Toss {
 			}
 			page := f.perfPages[len(f.perfQueries)-1]
 			fmt.Fprintf(w, `{"resultType":"SUCCESS","success":%s}`, page)
+		case "/categories":
+			success(map[string]any{"categories": f.categories})
 		case "/sub-tags":
 			var list []map[string]string
 			for _, id := range f.subTagList {
@@ -127,6 +143,11 @@ func (f *fakeTossServer) client(t *testing.T) *Toss {
 			}
 			success(map[string]any{"subTags": list, "hasNext": false})
 		default:
+			if strings.HasPrefix(r.URL.Path, "/products/best-categories/") {
+				f.listCalls++
+				success(map[string]any{"items": f.catBest[strings.TrimPrefix(r.URL.Path, "/products/best-categories/")]})
+				return
+			}
 			if strings.HasPrefix(r.URL.Path, "/settlements/") {
 				f.settleMonth = strings.TrimPrefix(r.URL.Path, "/settlements/")
 				amount := int64(41200)
@@ -215,7 +236,7 @@ func TestTossCandidates(t *testing.T) {
 		{TacaItemID: 8, DisplayName: "베스트 D"},
 	}
 
-	all := tossCandidates(best, deals, []string{"최근에 다룸"}, now, -1, 3)
+	all := tossCandidates(append(deals, best...), []string{"최근에 다룸"}, now, -1, 3)
 	var ids []int64
 	for _, p := range all {
 		ids = append(ids, p.TacaItemID)
@@ -230,7 +251,7 @@ func TestTossCandidates(t *testing.T) {
 	// 동시에 만드는 초안끼리 후보가 겹치지 않는다.
 	seen := map[int64]int{}
 	for slot := 0; slot < 3; slot++ {
-		for _, p := range tossCandidates(best, deals, []string{"최근에 다룸"}, now, slot, 3) {
+		for _, p := range tossCandidates(append(deals, best...), []string{"최근에 다룸"}, now, slot, 3) {
 			seen[p.TacaItemID]++
 		}
 	}
@@ -310,8 +331,8 @@ func TestSuggest_토스는_고른_상품의_쉐어링크까지_넣는다(t *test
 	id2, _ := db.CreateDraft(ctx, user, AffiliateToss, "", "", "")
 	t.Cleanup(func() { db.DeletePost(ctx, user, id2) })
 	a.suggest(id2, user, AffiliateToss, nil, "", -1)
-	if f.tokenCalls != 1 || f.listCalls != 2 {
-		t.Fatalf("토큰 %d번, 목록 %d번. 토큰 1번·목록 2번(베스트+특가)이어야 한다", f.tokenCalls, f.listCalls)
+	if f.tokenCalls != 1 || f.listCalls != 1 {
+		t.Fatalf("토큰 %d번, 목록 %d번. 토큰 1번·목록 1번(베스트)이어야 한다", f.tokenCalls, f.listCalls)
 	}
 
 	// 링크는 계정 subTag로 발급하고, subTag 등록은 한 번만 한다.

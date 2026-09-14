@@ -48,6 +48,7 @@ type Post struct {
 	RepliesDone      int
 	LastReplyID      string
 	PublishStartedAt *time.Time
+	Manual           bool  // 사용자가 상품을 직접 고른 초안인지
 	LinkAuto         bool  // 제휴 링크를 토스 API가 발급했는지
 	TacaItemID       int64 // 토스 API로 고른 상품. 0이면 없음
 	CreatedAt        time.Time
@@ -76,7 +77,7 @@ func (db *DB) Close() { db.pool.Close() }
 const postColumns = `id, user_id, affiliate, product_url, affiliate_link, memo, product_name, body, detail, detail2,
 	status, error_msg, thread_permalink,
 	thread_post_id, replies_done, last_reply_id, publish_started_at,
-	link_auto, taca_item_id,
+	manual, link_auto, taca_item_id,
 	created_at, published_at`
 
 func scanPost(row pgx.Row) (*Post, error) {
@@ -84,7 +85,7 @@ func scanPost(row pgx.Row) (*Post, error) {
 	err := row.Scan(&p.ID, &p.UserID, &p.Affiliate, &p.ProductURL, &p.AffiliateLink, &p.Memo,
 		&p.ProductName, &p.Body, &p.Detail, &p.Detail2, &p.Status, &p.ErrorMsg, &p.ThreadPermalink,
 		&p.ThreadPostID, &p.RepliesDone, &p.LastReplyID, &p.PublishStartedAt,
-		&p.LinkAuto, &p.TacaItemID,
+		&p.Manual, &p.LinkAuto, &p.TacaItemID,
 		&p.CreatedAt, &p.PublishedAt)
 	if err != nil {
 		return nil, err
@@ -99,6 +100,33 @@ func (db *DB) CreateDraft(ctx context.Context, userID, affiliate, productURL, af
 		`INSERT INTO posts (user_id, affiliate, product_url, affiliate_link, memo, status)
 		 VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
 		userID, affiliate, productURL, affiliateLink, memo, StatusGenerating).Scan(&id)
+	return id, err
+}
+
+// IsManual은 사용자가 상품을 고른 초안인지 본다. manual 칸이 생기기 전 초안은
+// 메모가 있는 것으로 구분했다.
+func (p *Post) IsManual() bool { return p.Manual || p.Memo != "" }
+
+// ManualDraft는 사용자가 상품을 고른 초안의 내용이다.
+type ManualDraft struct {
+	Affiliate     string
+	ProductName   string
+	ProductURL    string
+	AffiliateLink string
+	LinkAuto      bool  // 토스 API로 링크를 발급했는지
+	TacaItemID    int64 // 토스 상품. 쿠팡은 0
+	Memo          string
+}
+
+// CreateManualDraft는 사용자가 고른 상품으로 generating 초안을 만든다.
+func (db *DB) CreateManualDraft(ctx context.Context, userID string, d ManualDraft) (int64, error) {
+	var id int64
+	err := db.pool.QueryRow(ctx,
+		`INSERT INTO posts (user_id, affiliate, product_name, product_url, affiliate_link,
+		   link_auto, taca_item_id, memo, manual, status)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, $9) RETURNING id`,
+		userID, d.Affiliate, d.ProductName, d.ProductURL, d.AffiliateLink,
+		d.LinkAuto, d.TacaItemID, d.Memo, StatusGenerating).Scan(&id)
 	return id, err
 }
 
@@ -340,15 +368,15 @@ func (db *DB) DeleteThreadsUser(ctx context.Context, userID string) error {
 //
 // 자동 생성 버튼은 세 장을 통째로 새로 만드는 동작이다. 다만 제휴 링크를
 // 넣어둔 초안은 사용자가 시간을 들인 것이므로 남긴다. 직접 만든 초안도
-// 남긴다(메모가 있는 것으로 구분한다). 토스 API가 자동으로 넣은 링크는
-// 사용자가 손댄 것이 아니므로 지워도 된다.
+// 남긴다(manual, 또는 예전 초안은 메모로 구분한다). 토스 API가 자동으로 넣은
+// 링크는 사용자가 손댄 것이 아니므로 지워도 된다.
 func (db *DB) ClearAutoDrafts(ctx context.Context, userID string) error {
 	_, err := db.pool.Exec(ctx,
 		`DELETE FROM posts
 		 WHERE user_id = $1
 		   AND status = ANY($2)
 		   AND (affiliate_link = '' OR link_auto)
-		   AND memo = ''`,
+		   AND NOT manual AND memo = ''`,
 		userID, []string{StatusGenerating, StatusPending, StatusFailed})
 	return err
 }
