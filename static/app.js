@@ -135,6 +135,33 @@ if (document.getElementById('poll')) {
       });
     });
   });
+  // 사진 크게 보기: 누르면 화면 가득 띄우고, 다시 누르거나 Esc로 닫는다.
+  box.querySelectorAll('[data-zoom]').forEach(function (img) {
+    function open() {
+      var overlay = document.createElement('div');
+      overlay.className = 'zoom';
+      overlay.setAttribute('role', 'dialog');
+      overlay.setAttribute('aria-label', '사진 크게 보기');
+      var big = document.createElement('img');
+      big.src = img.src;
+      big.alt = img.alt;
+      overlay.appendChild(big);
+      function close() {
+        overlay.remove();
+        document.removeEventListener('keydown', onKey);
+        img.focus();
+      }
+      function onKey(e) { if (e.key === 'Escape') close(); }
+      overlay.addEventListener('click', close);
+      document.addEventListener('keydown', onKey);
+      document.body.appendChild(overlay);
+    }
+    img.addEventListener('click', open);
+    img.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+    });
+  });
+
   if (!input) return;
 
   function shrink(file) {

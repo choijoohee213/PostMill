@@ -43,7 +43,7 @@
 <!-- 2. 게시글 작성 (연필을 누르면 그 자리에서 고치고, 본문 아래에서 사진을 넣고 뺀다) -->
 <section class="step">
   <h2 class="step-title"><span class="step-num">2</span> 게시글 작성</h2>
-  <p class="step-hint">연필을 눌러 고치고, 본문 아래에서 사진을 넣고 뺄 수 있어요.</p>
+  <p class="step-hint">글을 수정하고, 본문 아래에서 사진을 첨부할 수 있어요.</p>
 
   <form method="post" action="/drafts/{{.Post.ID}}" id="edit-form">
     <div class="thread">
@@ -74,7 +74,7 @@
                data-room="{{len .Images}}" data-max="{{.MaxImages}}">
             {{range .Images}}
             <figure class="tphoto">
-              <img src="/media/{{.Token}}" alt="첨부한 사진" loading="lazy">
+              <img src="/media/{{.Token}}" alt="첨부한 사진" loading="lazy" data-zoom tabindex="0" role="button" aria-label="사진 크게 보기">
               {{if $canEdit}}<button class="photo-del" type="button" data-delete="/drafts/{{$.Post.ID}}/images/{{.ID}}/delete" title="사진 빼기" aria-label="사진 빼기">×</button>{{end}}
             </figure>
             {{end}}
