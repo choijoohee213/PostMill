@@ -52,7 +52,7 @@ func (a *app) handleAuto(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		hint := categoryHints[(start+i)%len(categoryHints)]
-		go a.suggest(id, affiliate, avoid, hint, i)
+		go a.suggest(id, userID, affiliate, avoid, hint, i)
 	}
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -73,7 +73,7 @@ func (a *app) handleAutoOne(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
-	go a.suggest(id, affiliate, a.recentProducts(r.Context(), userID),
+	go a.suggest(id, userID, affiliate, a.recentProducts(r.Context(), userID),
 		categoryHints[rand.IntN(len(categoryHints))], -1)
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -94,7 +94,7 @@ func (a *app) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	if err := a.db.DeleteImages(r.Context(), p.UserID, p.ID); err != nil {
 		log.Printf("재생성 사진 삭제 실패 (id=%d): %v", p.ID, err)
 	}
-	go a.suggest(p.ID, p.Affiliate, a.recentProducts(r.Context(), p.UserID),
+	go a.suggest(p.ID, p.UserID, p.Affiliate, a.recentProducts(r.Context(), p.UserID),
 		categoryHints[rand.IntN(len(categoryHints))], -1)
 
 	http.Redirect(w, r, backTo(r), http.StatusSeeOther)
@@ -126,14 +126,14 @@ func (a *app) recentProducts(ctx context.Context, userID string) []string {
 //
 // 토스는 API가 연결돼 있으면 실제 베스트·특가 상품에서 고르고 쉐어링크까지
 // 발급한다. slot은 동시에 만드는 초안끼리 후보를 나누는 번호다 (-1이면 전부).
-func (a *app) suggest(id int64, affiliate string, avoid []string, hint string, slot int) {
+func (a *app) suggest(id int64, userID, affiliate string, avoid []string, hint string, slot int) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 
 	var d *AutoDraft
 	var err error
 	if affiliate == AffiliateToss && a.toss != nil {
-		d, err = a.suggestToss(ctx, avoid, slot)
+		d, err = a.suggestToss(ctx, userID, avoid, slot)
 	} else {
 		d, err = a.gemini.SuggestDraft(ctx, affiliate, avoid, hint)
 	}

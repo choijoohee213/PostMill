@@ -33,6 +33,7 @@ var templateFuncs = template.FuncMap{
 	"canRetry":      canRetry,
 	"canResume":     canResume,
 	"canEditImages": canEditImages,
+	"won":           won,
 }
 
 // canResume은 게시가 끊긴 채 멈춘 글인지 본다.
@@ -288,7 +289,7 @@ func (a *app) handleRetry(w http.ResponseWriter, r *http.Request) {
 	}
 	// 메모가 없으면 AI가 상품까지 고르는 자동 초안이다.
 	if p.Memo == "" {
-		go a.suggest(id, p.Affiliate, a.recentProducts(r.Context(), p.UserID),
+		go a.suggest(id, p.UserID, p.Affiliate, a.recentProducts(r.Context(), p.UserID),
 			categoryHints[rand.IntN(len(categoryHints))], -1)
 	} else {
 		go a.generate(id, p.Affiliate, p.Memo)
@@ -507,6 +508,11 @@ func (a *app) handlePublish(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		a.renderEdit(w, r, p,
 			"Threads 계정이 연결되지 않아 게시할 수 없어요. 토큰으로 로그인해주세요.")
+		return
+	}
+
+	if reason := a.tossUnavailableReason(r.Context(), p); reason != "" {
+		a.renderEdit(w, r, p, reason)
 		return
 	}
 

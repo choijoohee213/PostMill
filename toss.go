@@ -131,12 +131,17 @@ func (t *Toss) listProducts(ctx context.Context, token, path string, size int) (
 }
 
 // CreateLink는 상품의 쉐어링크를 발급한다. 수익은 이 링크로만 집계된다.
-// 같은 상품을 다시 요청하면 기존 링크가 돌아오고 한도를 쓰지 않는다.
-func (t *Toss) CreateLink(ctx context.Context, token string, tacaItemID int64) (string, error) {
-	body, _ := json.Marshal(map[string]any{
+// 같은 상품·같은 subTag로 다시 요청하면 기존 링크가 돌아오고 한도를 쓰지 않는다.
+// subTagID는 미리 등록해 둔 값이어야 한다.
+func (t *Toss) CreateLink(ctx context.Context, token string, tacaItemID int64, subTagID string) (string, error) {
+	req := map[string]any{
 		"tacaItemId":  tacaItemID,
 		"publisherId": t.PublisherID,
-	})
+	}
+	if subTagID != "" {
+		req["subTagId"] = subTagID
+	}
+	body, _ := json.Marshal(req)
 	var out struct {
 		ShortURL  string `json:"shortUrl"`
 		OriginURL string `json:"originUrl"`
@@ -151,6 +156,137 @@ func (t *Toss) CreateLink(ctx context.Context, token string, tacaItemID int64) (
 		return out.OriginURL, nil
 	}
 	return "", fmt.Errorf("토스가 링크를 돌려주지 않았다")
+}
+
+// ProductStatus는 게시 직전에 확인하는 상품 상태다.
+type ProductStatus struct {
+	TacaItemID int64 `json:"tacaItemId"`
+	IsSoldOut  bool  `json:"isSoldOut"`
+}
+
+// ProductDetails는 상품들의 최신 상태를 본다. 판매가 끝났거나 노출이 막힌 상품은
+// 목록에서 빠지고 notFound에 담긴다.
+func (t *Toss) ProductDetails(ctx context.Context, token string, ids []int64) (found []ProductStatus, notFound []int64, err error) {
+	strs := make([]string, len(ids))
+	for i, id := range ids {
+		strs[i] = strconv.FormatInt(id, 10)
+	}
+	var out struct {
+		Items       []ProductStatus `json:"items"`
+		NotFoundIDs []int64         `json:"notFoundIds"`
+	}
+	q := url.Values{}
+	q.Set("tacaItemIds", strings.Join(strs, ","))
+	if err := t.do(ctx, token, http.MethodGet, "products/detail?"+q.Encode(), nil, &out); err != nil {
+		return nil, nil, err
+	}
+	return out.Items, out.NotFoundIDs, nil
+}
+
+// EnsureSubTag는 subTag를 등록한다. 이미 있으면 아무것도 바꾸지 않으므로 여러 번 불러도 된다.
+func (t *Toss) EnsureSubTag(ctx context.Context, token, subTagID, label string) error {
+	item := map[string]string{"subTagId": subTagID}
+	if label != "" {
+		item["label"] = label
+	}
+	body, _ := json.Marshal(map[string]any{"subTags": []map[string]string{item}})
+	var out struct {
+		Results []struct {
+			Status string `json:"status"`
+		} `json:"results"`
+	}
+	if err := t.do(ctx, token, http.MethodPost, "sub-tags/create", body, &out); err != nil {
+		return err
+	}
+	if len(out.Results) != 1 {
+		return fmt.Errorf("subTag 등록 결과가 없다")
+	}
+	switch st := out.Results[0].Status; st {
+	case "CREATED", "RESTORED", "ALREADY_EXISTS":
+		return nil
+	default:
+		return fmt.Errorf("subTag %q를 등록하지 못했다: %s", subTagID, st)
+	}
+}
+
+// Performance는 결제일 기준 잠정 실적이다. 클릭은 합계에만 있다.
+type Performance struct {
+	Summary struct {
+		ClickCount                int64  `json:"clickCount"`
+		SoldQuantity              int64  `json:"soldQuantity"`
+		RefundedQuantity          int64  `json:"refundedQuantity"`
+		NetPaymentAmount          int64  `json:"netPaymentAmount"`
+		ExpectedCommissionAmount  int64  `json:"expectedCommissionAmount"`
+		ConfirmedCommissionAmount int64  `json:"confirmedCommissionAmount"`
+		LastUpdatedAt             string `json:"lastUpdatedAt"`
+	} `json:"summary"`
+	Items []PerformanceItem `json:"items"`
+}
+
+type PerformanceItem struct {
+	ProductID                int64  `json:"productId"` // tacaItemId와 같은 값
+	ProductName              string `json:"productName"`
+	Attribution              string `json:"attribution"`
+	SoldQuantity             int64  `json:"soldQuantity"`
+	RefundedQuantity         int64  `json:"refundedQuantity"`
+	ExpectedCommissionAmount int64  `json:"expectedCommissionAmount"`
+}
+
+// tossMaxPages는 실적 목록을 몇 쪽까지 받을지다. 소수가 쓰는 도구라 넉넉하다.
+const tossMaxPages = 5
+
+// Performance는 기간(최대 31일)의 실적을 받는다. subTagID가 비면 거래처 전체다.
+func (t *Toss) Performance(ctx context.Context, token string, from, to time.Time, subTagID string) (*Performance, error) {
+	var perf *Performance
+	cursor := ""
+	for page := 0; page < tossMaxPages; page++ {
+		q := url.Values{}
+		q.Set("fromDate", from.Format("2006-01-02"))
+		q.Set("toDate", to.Format("2006-01-02"))
+		q.Set("size", "100")
+		if subTagID != "" {
+			q.Set("subTagId", subTagID)
+		}
+		if cursor != "" {
+			q.Set("cursor", cursor)
+		}
+		var out struct {
+			Performance
+			NextCursor string `json:"nextCursor"`
+			HasNext    bool   `json:"hasNext"`
+		}
+		if err := t.do(ctx, token, http.MethodGet, "performance?"+q.Encode(), nil, &out); err != nil {
+			return nil, err
+		}
+		if perf == nil {
+			perf = &out.Performance
+		} else {
+			perf.Items = append(perf.Items, out.Items...)
+		}
+		if !out.HasNext || out.NextCursor == "" {
+			break
+		}
+		cursor = out.NextCursor
+	}
+	return perf, nil
+}
+
+// SettledCommission은 정산 회차(YYYY-MM)에 구매확정된 수익금 합계(세전)다.
+func (t *Toss) SettledCommission(ctx context.Context, token, month, subTagID string) (int64, error) {
+	q := url.Values{}
+	q.Set("size", "1") // 합계만 필요하다
+	if subTagID != "" {
+		q.Set("subTagId", subTagID)
+	}
+	var out struct {
+		Summary struct {
+			CommissionAmount int64 `json:"commissionAmount"`
+		} `json:"summary"`
+	}
+	if err := t.do(ctx, token, http.MethodGet, "settlements/"+url.PathEscape(month)+"?"+q.Encode(), nil, &out); err != nil {
+		return 0, err
+	}
+	return out.Summary.CommissionAmount, nil
 }
 
 // do는 공통 응답 형식({resultType, success, error})을 풀어 success를 out에 담는다.

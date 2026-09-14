@@ -68,3 +68,7 @@ CREATE INDEX IF NOT EXISTS post_images_post_id_idx ON post_images (post_id, id);
 -- 제휴 링크를 토스 API로 자동 발급했는지. 사용자가 넣은 링크와 달리
 -- 자동 초안을 새로 만들거나 재생성할 때 함께 버려도 된다.
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS link_auto boolean NOT NULL DEFAULT false;
+
+-- 토스 API로 고른 상품의 옵션 ID. 게시 직전에 품절·판매 종료를 확인하고,
+-- 실적에서 어느 글의 상품인지 찾는 데 쓴다. 0이면 없음.
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS taca_item_id bigint NOT NULL DEFAULT 0;

@@ -110,6 +110,7 @@ func main() {
 	mux.HandleFunc("POST /drafts/{id}/images/{imageID}/delete", a.handleImageDelete)
 	mux.HandleFunc("GET /media/{token}", a.handleMedia)
 	mux.HandleFunc("GET /history", a.handleHistory)
+	mux.HandleFunc("GET /stats", a.handleStats)
 	mux.HandleFunc("GET /settings", a.handleSettings)
 	mux.HandleFunc("POST /disconnect", a.handleDisconnect)
 
