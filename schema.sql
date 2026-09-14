@@ -72,3 +72,7 @@ ALTER TABLE posts ADD COLUMN IF NOT EXISTS link_auto boolean NOT NULL DEFAULT fa
 -- 토스 API로 고른 상품의 옵션 ID. 게시 직전에 품절·판매 종료를 확인하고,
 -- 실적에서 어느 글의 상품인지 찾는 데 쓴다. 0이면 없음.
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS taca_item_id bigint NOT NULL DEFAULT 0;
+
+-- 사용자가 상품을 직접 고른 초안인지. 예전에는 메모 유무로 구분했지만
+-- 메모 없이도 만들 수 있게 되어 따로 둔다. 자동 생성 버튼이 지우지 않는다.
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS manual boolean NOT NULL DEFAULT false;

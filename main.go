@@ -26,6 +26,8 @@ type app struct {
 	toss      *Toss
 	tossState tossState
 
+	tossLinkClient *http.Client // 테스트에서 토스 공유 링크 따라가기를 가짜로 바꾼다
+
 	session       *session
 	appID         string
 	appSecret     string
@@ -91,8 +93,7 @@ func main() {
 	mux.HandleFunc("POST /login/admin", a.handleAdminLogin)
 	mux.HandleFunc("POST /logout", a.handleLogout)
 	mux.HandleFunc("GET /{$}", a.handleList)
-	mux.HandleFunc("GET /new", a.handleNewForm)
-	mux.HandleFunc("POST /new", a.handleNewSubmit)
+	mux.HandleFunc("POST /new", a.handleManualSubmit)
 	mux.HandleFunc("POST /auto", a.handleAuto)
 	mux.HandleFunc("POST /auto/one", a.handleAutoOne)
 	mux.HandleFunc("POST /drafts/{id}/refresh", a.handleRefresh)

@@ -140,24 +140,6 @@ main {
   text-align: center;
 }
 
-/* 새 초안 버튼 */
-.fab {
-  position: fixed;
-  right: 20px;
-  bottom: 24px;
-  width: 52px;
-  height: 52px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  background: var(--accent);
-  color: #fff;
-  font-size: 28px;
-  text-decoration: none;
-  box-shadow: 0 3px 10px rgba(0, 0, 0, .2);
-}
-
 /* 폼 */
 .page-title {
   margin: 20px 0 16px;
@@ -217,26 +199,6 @@ main {
   margin-top: 6px;
   color: var(--muted);
   font-size: 13px;
-}
-
-.choices { display: flex; gap: 8px; }
-
-.choice {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 11px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--card);
-}
-
-.choice:has(input:checked) {
-  border-color: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--accent);
-  font-weight: 600;
 }
 
 .actions {
@@ -548,25 +510,6 @@ main {
 .hero .error { text-align: left; }
 
 /* 자동 생성 바 */
-.auto-bar {
-  margin-bottom: 12px;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--card);
-}
-
-.auto-label {
-  display: block;
-  margin-bottom: 10px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.auto-buttons { display: flex; gap: 8px; }
-.auto-buttons form { flex: 1; display: flex; }
-.auto-buttons .btn { flex: 1; }
-
 /* 아코디언 카드 */
 .card-details summary {
   padding: 14px;
@@ -1164,3 +1107,116 @@ main {
 }
 
 .published-body { margin-bottom: 16px; }
+
+/* 홈 만들기 칸 */
+.create {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+}
+
+.create fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+/* display를 직접 잡은 칸이 많아 [hidden]을 다시 살린다. */
+.create [hidden] { display: none !important; }
+
+.create .error { margin: 0; }
+.create .hint { margin: 0; }
+.create .field { display: flex; flex-direction: column; gap: 6px; }
+.create .link-help { margin-top: 0; }
+
+.create-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.create-label {
+  flex: none;
+  min-width: 52px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.create-label em { font-style: normal; }
+
+.seg {
+  flex: 1;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg);
+}
+
+.seg label, .chips label { cursor: pointer; }
+.seg label { flex: 1; }
+
+.seg input, .chips input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.seg span {
+  display: block;
+  padding: 7px 8px;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 14px;
+  text-align: center;
+}
+
+.seg input:checked + span {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chips span {
+  display: block;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 13px;
+}
+
+.chips input:checked + span {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  font-weight: 600;
+}
+
+.seg input:focus-visible + span,
+.chips input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.create select {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}

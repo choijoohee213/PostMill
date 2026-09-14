@@ -194,22 +194,49 @@ if (document.getElementById('poll')) {
   });
 })();
 
-// 초안 만들기: 제휴사를 고르면 그 제휴사의 바로가기만 보인다.
-// 자바스크립트가 없으면 전부 보이고, 링크를 붙여넣는 데는 지장이 없다.
+// 홈 만들기 칸: 고른 제휴사·방식·목록에 맞는 칸만 보인다.
+// 숨긴 칸은 비활성으로 두어 함께 제출되지 않는다. 고른 것은 다음에 열 때 되살린다.
 (function () {
-  var radios = document.querySelectorAll('input[name="affiliate"]');
-  var helps = document.querySelectorAll('[data-aff-help]');
-  if (!radios.length || !helps.length) return;
+  var form = document.getElementById('create');
+  if (!form) return;
+  var names = ['affiliate', 'mode', 'source', 'area', 'category'];
+  var hasError = !!form.querySelector('.error');
 
-  function sync() {
-    var checked = document.querySelector('input[name="affiliate"]:checked');
-    helps.forEach(function (h) {
-      h.hidden = !checked || h.dataset.affHelp !== checked.value;
+  function load() {
+    if (hasError) return;
+    names.forEach(function (n) {
+      var v;
+      try { v = localStorage.getItem('create.' + n); } catch (e) { return; }
+      if (v === null) return;
+      var el = form.querySelector('[name="' + n + '"][value="' + CSS.escape(v) + '"]');
+      if (el && el.type === 'radio') el.checked = true;
+      var sel = form.querySelector('select[name="' + n + '"]');
+      if (sel && Array.prototype.some.call(sel.options, function (o) { return o.value === v; })) sel.value = v;
     });
   }
 
-  radios.forEach(function (r) {
-    r.addEventListener('change', sync);
+  function value(n) {
+    var el = form.querySelector('[name="' + n + '"]:checked') || form.querySelector('select[name="' + n + '"]');
+    return el ? el.value : '';
+  }
+
+  function sync() {
+    var state = [value('mode'), value('affiliate'), value('source')];
+    form.querySelectorAll('[data-when]').forEach(function (el) {
+      var show = el.dataset.when.split(' ').every(function (t) { return state.indexOf(t) >= 0; });
+      el.hidden = !show;
+      if ('disabled' in el) el.disabled = !show;
+    });
+    names.forEach(function (n) {
+      try { localStorage.setItem('create.' + n, value(n)); } catch (e) {}
+    });
+  }
+
+  form.addEventListener('change', sync);
+  form.addEventListener('submit', function (e) {
+    var msg = e.submitter && e.submitter.dataset.confirm;
+    if (msg && !confirm(msg)) e.preventDefault();
   });
+  load();
   sync();
 })();

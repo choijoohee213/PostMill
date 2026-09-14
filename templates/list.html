@@ -14,18 +14,99 @@
 {{end}}
 
 {{if eq .ActiveTab "review"}}
-<div class="auto-bar">
-  <span class="auto-label">AI가 상품까지 골라 {{.BatchSize}}개를 채웁니다. 누를 때마다 통째로 바뀝니다.</span>
-  <div class="auto-buttons">
-    {{range .Affiliates}}
-    <form method="post" action="/auto"
-          onsubmit="return confirm('{{.Label}} 초안 {{$.BatchSize}}개를 새로 만듭니다. 링크를 넣지 않은 기존 초안은 사라집니다.')">
-      <input type="hidden" name="affiliate" value="{{.Key}}">
-      <button class="btn btn-small" type="submit">{{.Label}}으로 새로 채우기</button>
-    </form>
-    {{end}}
+<!-- 만들기: 제휴사와 누가 상품을 고를지 정한다. 선택에 맞는 칸만 app.js가 보여준다.
+     자바스크립트가 없으면 모든 칸이 보이고, 누른 버튼에 따라 서버가 필요한 값만 쓴다. -->
+<form class="create" id="create" method="post" action="/auto">
+  {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+
+  <div class="create-row">
+    <span class="create-label">제휴사</span>
+    <div class="seg">
+      {{range .Affiliates}}
+      <label><input type="radio" name="affiliate" value="{{.Key}}"{{if eq .Key (or $.Form.Affiliate $.LastAff)}} checked{{end}}><span>{{.Label}}</span></label>
+      {{end}}
+    </div>
   </div>
-</div>
+
+  <div class="create-row">
+    <span class="create-label">상품은</span>
+    <div class="seg">
+      <label><input type="radio" name="mode" value="ai"{{if not .Error}} checked{{end}}><span>AI가 골라요</span></label>
+      <label><input type="radio" name="mode" value="manual"{{if .Error}} checked{{end}}><span>내가 골라요</span></label>
+    </div>
+  </div>
+
+  {{if .TossAPI}}
+  <fieldset data-when="ai toss">
+    <span class="create-label">어디서 고를까요</span>
+    <div class="chips">
+      <label><input type="radio" name="source" value="best" checked><span>베스트</span></label>
+      <label><input type="radio" name="source" value="deal"><span>하루특가</span></label>
+      <label><input type="radio" name="source" value="mine"><span>내 실적 기준으로</span></label>
+      {{if .Categories}}<label><input type="radio" name="source" value="cat"><span>카테고리</span></label>{{end}}
+    </div>
+    {{if .Categories}}
+    <select name="category" data-when="cat" aria-label="카테고리">
+      {{range .Categories}}
+      <optgroup label="{{.Name}}">
+        {{range .Options}}<option value="{{.Value}}">{{.Name}}</option>{{end}}
+      </optgroup>
+      {{end}}
+    </select>
+    {{end}}
+    <p class="hint" data-when="best">지금 토스쇼핑에서 많이 팔리는 상품이에요.</p>
+    <p class="hint" data-when="deal">오늘만 하는 특가예요. 3시간 안에 끝나는 건 빼요.</p>
+    <p class="hint" data-when="mine">최근 30일 동안 내 링크로 팔린 상품의 카테고리에서 골라요. 판매가 없으면 베스트에서 골라요.</p>
+    <p class="hint" data-when="cat">고른 카테고리에서 잘 팔리는 상품이에요.</p>
+  </fieldset>
+  {{end}}
+
+  <fieldset data-when="ai{{if .TossAPI}} coupang{{end}}">
+    <span class="create-label">분야</span>
+    <div class="chips">
+      <label><input type="radio" name="area" value="" checked><span>골고루</span></label>
+      {{range .Areas}}<label><input type="radio" name="area" value="{{.Key}}"><span>{{.Label}}</span></label>{{end}}
+    </div>
+    <p class="hint">API가 없어 AI가 상품 종류를 제안해요. 링크는 직접 만들어 붙여넣어요.</p>
+  </fieldset>
+
+  <fieldset data-when="ai">
+    <button class="btn btn-primary btn-block" type="submit" formaction="/auto" data-confirm="초안 {{.BatchSize}}개를 새로 만들어요. 직접 고르지 않았고 링크를 넣지 않은 기존 초안은 사라져요.">초안 {{.BatchSize}}개 채우기</button>
+  </fieldset>
+
+  {{if .TossAPI}}
+  <fieldset data-when="manual toss">
+    <label class="field">
+      <span class="create-label">토스 상품 링크</span>
+      <input type="url" name="product_link" value="{{.Form.ProductLink}}" placeholder="https://toss.shopping/t/…" inputmode="url">
+    </label>
+    <p class="hint">상품 페이지 주소나 공유 링크를 붙여넣으면 상품 이름을 가져오고 쉐어링크를 만들어요.</p>
+  </fieldset>
+  {{end}}
+
+  <fieldset data-when="manual{{if .TossAPI}} coupang{{end}}">
+    <label class="field">
+      <span class="create-label">제휴 링크</span>
+      <input type="url" name="affiliate_link" value="{{.Form.AffiliateLink}}" placeholder="https://" inputmode="url">
+    </label>
+    <div class="link-help">
+      {{range .Affiliates}}{{if or (eq .Key "coupang") (not $.TossAPI)}}<a class="btn btn-small" href="{{.HelpURL}}" target="_blank" rel="noopener" data-when="{{.Key}}">{{.HelpLabel}} ↗</a>{{end}}{{end}}
+    </div>
+    <label class="field">
+      <span class="create-label">상품 이름</span>
+      <input type="text" name="product_name" value="{{.Form.ProductName}}" placeholder="접이식 실리콘 설거지통">
+    </label>
+  </fieldset>
+
+  <fieldset data-when="manual">
+    <label class="field">
+      <span class="create-label">메모 <em>(선택)</em></span>
+      <textarea name="memo" rows="3" placeholder="써보니 좋았던 점, 원하는 말투">{{.Form.Memo}}</textarea>
+    </label>
+    <p class="hint">적은 내용만 사실로 써요. 비워두면 가격이나 수치 없이 쓰는 느낌으로만 써요.</p>
+    <button class="btn btn-primary btn-block" type="submit" formaction="/new">AI로 글 쓰기</button>
+  </fieldset>
+</form>
 {{end}}
 
 {{if .Posts}}
@@ -120,10 +201,9 @@
 {{end}}
 
 {{if not .Posts}}
-<p class="empty">{{if .Query}}"{{.Query}}"에 맞는 글이 없어요.{{else if eq .ActiveTab "review"}}위 버튼으로 초안을 만들어보세요.{{else}}아직 글이 없습니다.{{end}}</p>
+<p class="empty">{{if .Query}}"{{.Query}}"에 맞는 글이 없어요.{{else if eq .ActiveTab "review"}}위에서 초안을 만들어보세요.{{else}}아직 글이 없습니다.{{end}}</p>
 {{end}}
 
-<a class="fab" href="/new" aria-label="직접 만들기" title="직접 만들기">+</a>
 
 {{if .Generating}}<div id="poll" hidden></div>{{end}}
 

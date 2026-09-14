@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"html/template"
 	"log"
-	"math/rand/v2"
 	"net/http"
 	"strconv"
 	"strings"
@@ -114,9 +113,26 @@ type listData struct {
 	Missing    int    // 검수대기가 세 장에 못 미치는 만큼
 	LastAff    string // 추가 버튼이 쓸 제휴사
 	Query      string // 게시완료 검색어
+
+	// 만들기 칸
+	Error      string
+	Form       manualForm
+	TossAPI    bool            // 토스 API가 연결돼 있는지
+	Areas      []coupangArea   // 쿠팡 AI 초안 분야
+	Categories []categoryGroup // 토스 카테고리 선택지
 }
 
 func (a *app) handleList(w http.ResponseWriter, r *http.Request) {
+	a.renderList(w, r, listExtra{})
+}
+
+// listExtra는 목록 위 만들기 칸에 되돌려 보여줄 것이다 (직접 만들기 실패).
+type listExtra struct {
+	Error string
+	Form  manualForm
+}
+
+func (a *app) renderList(w http.ResponseWriter, r *http.Request, extra listExtra) {
 	a.expireImages(r)
 
 	active := r.URL.Query().Get("tab")
@@ -172,6 +188,11 @@ func (a *app) handleList(w http.ResponseWriter, r *http.Request) {
 		Missing:    missing,
 		LastAff:    lastAff,
 		Query:      query,
+		Error:      extra.Error,
+		Form:       extra.Form,
+		TossAPI:    a.toss != nil,
+		Areas:      coupangAreas,
+		Categories: a.categoriesFor(r, current.Key),
 	})
 }
 
@@ -186,12 +207,6 @@ func (a *app) render(w http.ResponseWriter, name string, data any) {
 	}
 }
 
-type newData struct {
-	Affiliates []affiliateOption
-	Form       newForm
-	Error      string
-}
-
 type affiliateOption struct {
 	Key   string
 	Label string
@@ -200,14 +215,6 @@ type affiliateOption struct {
 	// 최소한 만들러 가는 길은 폼 안에서 열어준다.
 	HelpURL   string
 	HelpLabel string
-	HelpHint  string
-}
-
-type newForm struct {
-	Affiliate     string
-	AffiliateLink string
-	ProductURL    string
-	Memo          string
 }
 
 var affiliateOptions = []affiliateOption{
@@ -216,63 +223,13 @@ var affiliateOptions = []affiliateOption{
 		Label:     "쿠팡",
 		HelpURL:   "https://partners.coupang.com/",
 		HelpLabel: "쿠팡 파트너스 열기",
-		HelpHint:  "링크 생성에서 상품 주소나 검색 주소를 넣어 만든 링크를 붙여넣으세요.",
 	},
 	{
 		Key:       AffiliateToss,
 		Label:     "토스",
 		HelpURL:   "https://sharelink.toss.im/",
 		HelpLabel: "토스 쉐어링크 열기",
-		HelpHint:  "토스쇼핑에서 상품을 찾아 쉐어링크를 복사해 붙여넣으세요.",
 	},
-}
-
-func (a *app) handleNewForm(w http.ResponseWriter, r *http.Request) {
-	a.render(w, "new.html", newData{
-		Affiliates: affiliateOptions,
-		Form:       newForm{Affiliate: AffiliateCoupang},
-	})
-}
-
-func (a *app) handleNewSubmit(w http.ResponseWriter, r *http.Request) {
-	form := newForm{
-		Affiliate:     r.FormValue("affiliate"),
-		AffiliateLink: strings.TrimSpace(r.FormValue("affiliate_link")),
-		ProductURL:    strings.TrimSpace(r.FormValue("product_url")),
-		Memo:          strings.TrimSpace(r.FormValue("memo")),
-	}
-
-	if msg := validateNewForm(form); msg != "" {
-		w.WriteHeader(http.StatusBadRequest)
-		a.render(w, "new.html", newData{Affiliates: affiliateOptions, Form: form, Error: msg})
-		return
-	}
-
-	id, err := a.db.CreateDraft(r.Context(), a.session.userID(r),
-		form.Affiliate, form.ProductURL, form.AffiliateLink, form.Memo)
-	if err != nil {
-		log.Printf("초안 생성 실패: %v", err)
-		http.Error(w, "저장하지 못했습니다", http.StatusInternalServerError)
-		return
-	}
-
-	// 생성은 백그라운드로 넘기고 즉시 목록으로 보낸다.
-	go a.generate(id, form.Affiliate, form.Memo)
-
-	http.Redirect(w, r, "/", http.StatusSeeOther)
-}
-
-func validateNewForm(f newForm) string {
-	if _, err := disclosureFor(f.Affiliate); err != nil {
-		return "제휴사를 선택해주세요."
-	}
-	if f.AffiliateLink == "" {
-		return "제휴 링크를 입력해주세요."
-	}
-	if f.Memo == "" {
-		return "상품 메모를 입력해주세요."
-	}
-	return ""
 }
 
 func (a *app) handleRetry(w http.ResponseWriter, r *http.Request) {
@@ -295,12 +252,10 @@ func (a *app) handleRetry(w http.ResponseWriter, r *http.Request) {
 	if err := a.db.SetGenerateError(r.Context(), id, ""); err != nil {
 		log.Printf("재시도 준비 실패: %v", err)
 	}
-	// 메모가 없으면 AI가 상품까지 고르는 자동 초안이다.
-	if p.Memo == "" {
-		go a.suggest(id, p.UserID, p.Affiliate, a.recentProducts(r.Context(), p.UserID),
-			categoryHints[rand.IntN(len(categoryHints))], -1)
+	if !p.IsManual() {
+		go a.suggest(id, p.UserID, p.Affiliate, a.recentProducts(r.Context(), p.UserID), defaultPick(p.Affiliate), -1)
 	} else {
-		go a.generate(id, p.Affiliate, p.Memo)
+		go a.generate(id, p.Affiliate, p.ProductName, p.Memo)
 	}
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -308,7 +263,8 @@ func (a *app) handleRetry(w http.ResponseWriter, r *http.Request) {
 
 // generate는 요청과 무관하게 도는 백그라운드 작업이다.
 // 요청 컨텍스트를 쓰면 리다이렉트와 동시에 취소되므로 쓰지 않는다.
-func (a *app) generate(id int64, affiliate, memo string) {
+// 상품은 사용자가 골랐으므로 글만 쓴다. 메모가 없으면 상품 이름으로만 쓴다.
+func (a *app) generate(id int64, affiliate, productName, memo string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 
@@ -326,7 +282,7 @@ func (a *app) generate(id int64, affiliate, memo string) {
 		return
 	}
 
-	body, detail, err := a.gemini.GenerateDraft(ctx, affiliate, memo, room)
+	body, detail, err := a.gemini.GenerateDraft(ctx, affiliate, manualMemo(productName, memo), room)
 	if err != nil {
 		fail("초안을 만들지 못했습니다.", err)
 		return
@@ -454,7 +410,7 @@ func (a *app) handleRegenerate(w http.ResponseWriter, r *http.Request) {
 	if err := a.db.DeleteImages(r.Context(), p.UserID, p.ID); err != nil {
 		log.Printf("재생성 사진 삭제 실패 (id=%d): %v", p.ID, err)
 	}
-	go a.generate(p.ID, p.Affiliate, p.Memo)
+	go a.generate(p.ID, p.Affiliate, p.ProductName, p.Memo)
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
@@ -542,4 +498,12 @@ func (a *app) handlePublish(w http.ResponseWriter, r *http.Request) {
 	a.startPublish(p, u.AccessToken, text, reply)
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// categoriesFor는 만들기 칸이 보이는 검수대기 탭에서만 토스 카테고리를 준비한다.
+func (a *app) categoriesFor(r *http.Request, tab string) []categoryGroup {
+	if tab != "review" {
+		return nil
+	}
+	return a.tossCategoryGroups(r.Context())
 }
