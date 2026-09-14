@@ -5,7 +5,7 @@
 {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
 
 {{if eq .Post.Status "published"}}
-<p class="notice">이미 게시한 글이에요.</p>
+<!-- 게시한 글은 고칠 게 없으므로 올라간 모습만 보여준다. -->
 {{if .Post.ThreadPermalink}}
 <!-- Threads 공식 임베드. 스크립트가 못 뜨면 안의 링크가 그대로 보인다. -->
 <div class="threads-embed">
@@ -14,8 +14,12 @@
   </blockquote>
 </div>
 <script async src="https://www.threads.com/embed.js"></script>
+{{else}}
+<!-- 게시 주소를 받지 못한 글. 임베드할 수 없어 본문만 보여준다. -->
+<p class="notice">게시한 글이에요. Threads 주소를 받지 못해 본문만 보여드려요.</p>
+<p class="tbody">{{.Preview}}</p>
 {{end}}
-{{end}}
+{{else}}
 
 <!-- 1. 상품과 링크 -->
 <section class="step">
@@ -212,5 +216,7 @@
     </form>
   </div>
 </section>
+
+{{end}}
 
 {{template "foot" .}}
