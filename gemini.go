@@ -11,6 +11,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -632,9 +633,30 @@ func (g *Gemini) SuggestFromTossBatch(ctx context.Context, products []TossProduc
 // batchFormat은 요청 끝에 붙이는 출력 형식 안내다.
 func batchFormat(n int) string {
 	if n == 1 {
-		return "\n\n초안 하나만 출력한다."
+		return "\n\n초안 하나만 출력한다. \"초안 1\" 같은 머리말은 쓰지 않는다."
 	}
-	return fmt.Sprintf("\n\n초안 %d개를 순서대로 출력하고, 초안과 초안 사이에는 %s 만 있는 줄을 넣는다.", n, draftBatchSeparator)
+	return fmt.Sprintf("\n\n초안 %d개를 순서대로 출력하고, 초안과 초안 사이에는 %s 만 있는 줄을 넣는다. "+
+		"\"초안 1\" 같은 머리말은 쓰지 않고 형식의 첫 부분부터 바로 쓴다.", n, draftBatchSeparator)
+}
+
+// draftLabel은 모델이 초안 앞에 붙이는 머리말이다. 요청에서 "초안 1: …"로 장을
+// 구분해 줬더니 응답에도 "초안 1:" 줄을 붙여, 첫 줄을 상품 이름으로 읽던 코드가
+// 제목을 "초안1:"로 저장했다. "**초안 2**", "[초안 3]", "초안3." 같은 변형도 뗀다.
+var draftLabel = regexp.MustCompile(`^\s*[*#\[(]*\s*초안\s*\d+\s*[*\])]*\s*[:：.\-)]?\s*[*]*\s*`)
+
+// stripDraftLabel은 초안 첫머리의 머리말을 뗀다. 머리말만 있는 줄은 통째로 지운다.
+func stripDraftLabel(chunk string) string {
+	lines := strings.Split(strings.TrimSpace(chunk), "\n")
+	if len(lines) == 0 || !draftLabel.MatchString(lines[0]) {
+		return strings.TrimSpace(chunk)
+	}
+	rest := strings.TrimSpace(draftLabel.ReplaceAllString(lines[0], ""))
+	if rest == "" {
+		lines = lines[1:]
+	} else {
+		lines[0] = rest
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
 // splitBatch는 응답을 초안별로 나눈다. 최대 n개까지만 돌려준다.
@@ -650,6 +672,9 @@ func splitBatch(raw string, n int) []string {
 		cur = append(cur, line)
 	}
 	chunks = append(chunks, strings.Join(cur, "\n"))
+	for i := range chunks {
+		chunks[i] = stripDraftLabel(chunks[i])
+	}
 	if len(chunks) > n {
 		chunks = chunks[:n]
 	}

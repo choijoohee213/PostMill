@@ -667,3 +667,39 @@ func TestCountPublishedToss_이_달과_누적을_센다(t *testing.T) {
 		t.Fatalf("이 달=%d 누적=%d err=%v, 2와 3이어야 한다", inRange, total, err)
 	}
 }
+
+// 모델이 초안마다 "초안 1:" 머리말을 붙이면 그 줄이 상품 이름으로 저장됐다.
+func TestBatch_초안_머리말을_떼고_읽는다(t *testing.T) {
+	coupang := "초안 1:\n접이식 설거지통\n---\n본문1\n---\n답1\n=====\n**초안 2**\n텀블러\n---\n본문2\n---\n답2\n=====\n초안3: 틈새 수납장\n---\n본문3\n---\n답3"
+	g, _ := fakeGemini(t, func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, okBody(coupang)) })
+	specs := []draftSpec{{Hook: hookTypes[0]}, {Hook: hookTypes[1]}, {Hook: hookTypes[2]}}
+	drafts, err := g.SuggestDrafts(context.Background(), AffiliateCoupang, nil, specs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, d := range drafts {
+		if d == nil {
+			t.Fatalf("버려진 장이 있다: %+v", drafts)
+		}
+		names = append(names, d.ProductName)
+	}
+	if strings.Join(names, ",") != "접이식 설거지통,텀블러,틈새 수납장" {
+		t.Fatalf("상품 이름=%v", names)
+	}
+
+	toss := "[초안 1]\n2\n---\n본문\n---\n답\n=====\n초안 2: 1\n---\n본문\n---\n답"
+	g2, _ := fakeGemini(t, func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, okBody(toss)) })
+	picks, tdrafts, err := g2.SuggestFromTossBatch(context.Background(), []TossProduct{{DisplayName: "첫째"}, {DisplayName: "둘째"}}, hookTypes[:2])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if picks[0] != 1 || picks[1] != 0 || tdrafts[0] == nil || tdrafts[1] == nil {
+		t.Fatalf("picks=%v drafts=%+v", picks, tdrafts)
+	}
+
+	// 머리말이 없는 평범한 이름은 건드리지 않는다.
+	if got := stripDraftLabel("초안지 파일 보관함\n---\n본문"); !strings.HasPrefix(got, "초안지 파일 보관함") {
+		t.Errorf("머리말이 아닌 이름을 잘랐다: %q", got)
+	}
+}
