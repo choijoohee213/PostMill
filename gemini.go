@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -39,10 +40,10 @@ const draftSystemPrompt = `너는 스레드(Threads)에 제휴 마케팅 글을 
 [본문] --- 위쪽
 - 아주 짧게. 3~4줄, 80자 안팎. 이게 가장 중요하다.
 - 스레드는 훑어보는 곳이다. 길면 그냥 넘긴다.
-- 구성: 겪던 불편 한 줄 → 이걸로 뭐가 달라졌는지 한 줄 → 질문 한 줄.
+- 구성은 요청에 적힌 훅 유형을 따른다.
 - 장점은 딱 하나만. 메모에 여러 개 있어도 가장 공감될 것 하나만 고르고
   나머지는 전부 버린다.
-- 마지막 줄은 읽는 사람에게 던지는 질문이다. 답글이 달려야 노출된다.
+- 읽는 사람이 답글을 달고 싶어지게 끝낸다. 답글이 달려야 노출된다.
 
 [디테일] --- 아래쪽
 - 답글로 이어 붙일 내용이다. 3~5줄, 120자 안팎.
@@ -73,6 +74,30 @@ const draftSystemPrompt = `너는 스레드(Threads)에 제휴 마케팅 글을 
 - 메모에 없는 기능을 있다고 하지 마라.
 
 다른 말 없이 본문, ---, 디테일만 출력한다.`
+
+// hookType은 본문 첫 줄을 여는 방식이다. 모든 글이 같은 구조면 타임라인에서
+// 같은 사람이 같은 글을 반복하는 것처럼 보이므로 초안마다 바꾼다.
+// 논쟁형과 정보성은 쓰지 않는다. 논쟁은 제휴 글에서 반감을 사고,
+// 정보성은 확인되지 않은 사실을 지어내기 쉽다.
+type hookType struct {
+	Name  string
+	Guide string
+}
+
+var hookTypes = []hookType{
+	{"공감형", `첫 줄은 많은 사람이 겪는 사소한 불편을 "나만 그래?" 하듯 꺼낸다. 둘째 줄에 이걸로 뭐가 달라졌는지, 마지막 줄은 읽는 사람에게 묻는다.`},
+	{"후기형", `첫 줄은 써본 뒤의 솔직한 한마디로 연다. 사용 기간 같은 숫자는 쓰지 않는다. 둘째 줄에 제일 좋았던 점 하나, 마지막 줄은 읽는 사람에게 묻는다.`},
+	{"비교형", `첫 줄은 이걸 쓰기 전에 하던 방식을 말한다. 둘째 줄에 지금은 어떻게 하는지, 마지막 줄은 읽는 사람에게 묻는다.`},
+	{"질문형", `첫 줄부터 읽는 사람에게 묻는다. 둘째 줄에 나는 이걸로 해결했다고 말하고, 마지막 줄은 짧은 한마디로 맺는다.`},
+}
+
+// randomHook은 초안 하나만 만들 때 쓴다.
+func randomHook() hookType { return hookTypes[rand.IntN(len(hookTypes))] }
+
+// hookPrompt는 요청 끝에 붙일 훅 안내다.
+func hookPrompt(h hookType) string {
+	return "\n\n이번 본문의 훅은 " + h.Name + "이다. " + h.Guide
+}
 
 // 본문과 디테일을 나누는 구분자.
 const draftSeparator = "---"
@@ -144,7 +169,7 @@ type geminiResponse struct {
 // GenerateDraft는 메모를 바탕으로 본문 초안을 만든다.
 // 대가성 문구와 링크는 포함하지 않는다 (compose.go가 발행 시점에 붙인다).
 // 일시적인 실패는 maxAttempts만큼 다시 시도한다.
-func (g *Gemini) GenerateDraft(ctx context.Context, affiliate, memo string, room int) (string, string, error) {
+func (g *Gemini) GenerateDraft(ctx context.Context, affiliate, memo string, room int, hook hookType) (string, string, error) {
 	var lastErr error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		if attempt > 0 {
@@ -157,7 +182,7 @@ func (g *Gemini) GenerateDraft(ctx context.Context, affiliate, memo string, room
 			}
 		}
 
-		body, detail, err := g.generateOnce(ctx, affiliate, memo, room)
+		body, detail, err := g.generateOnce(ctx, affiliate, memo, room, hook)
 		if err == nil {
 			return body, detail, nil
 		}
@@ -171,7 +196,7 @@ func (g *Gemini) GenerateDraft(ctx context.Context, affiliate, memo string, room
 	return "", "", fmt.Errorf("%d번 시도했지만 실패했다: %w", maxAttempts, lastErr)
 }
 
-func (g *Gemini) generateOnce(ctx context.Context, affiliate, memo string, room int) (string, string, error) {
+func (g *Gemini) generateOnce(ctx context.Context, affiliate, memo string, room int, hook hookType) (string, string, error) {
 	limit := room
 	if bodyMaxChars < limit {
 		limit = bodyMaxChars
@@ -183,7 +208,7 @@ func (g *Gemini) generateOnce(ctx context.Context, affiliate, memo string, room 
 
 본문은 %d자 안팎(최대 %d자), 디테일은 %d자 안팎으로 써라.
 본문에는 장점 하나만 담고 나머지는 디테일로 보내라.`,
-		affiliateKo(affiliate), memo, bodyTargetChars, limit, detailTargetChars)
+		affiliateKo(affiliate), memo, bodyTargetChars, limit, detailTargetChars) + hookPrompt(hook)
 
 	raw, err := g.call(ctx, draftSystemPrompt, prompt)
 	if err != nil {
@@ -314,8 +339,7 @@ const autoSystemPrompt = `너는 스레드(Threads)에 제휴 마케팅 글을 �
 // 다르고 글 형식은 같으므로 쿠팡·토스 프롬프트가 함께 쓴다.
 const autoReplyParts = `---
 [2] 본문. 아주 짧게, 3~4줄, 80자 안팎.
-    구성: 겪던 불편 한 줄 → 이걸로 뭐가 달라졌는지 한 줄 → 질문 한 줄.
-    장점은 딱 하나만 담는다.
+    구성은 요청에 적힌 훅 유형을 따른다. 장점은 딱 하나만 담는다.
 ---
 [3] 첫 번째 답글. 2~4줄, 100자 안팎.
     본문에서 안 쓴 이야기를 푼다. 본문에 쓴 말을 되풀이하지 마라.
@@ -372,7 +396,7 @@ type AutoDraft struct {
 
 // SuggestDraft는 상품 선정부터 본문까지 한 번에 만든다.
 // avoid에 적힌 상품은 피한다. 같은 걸 계속 제안하지 않게 하기 위해서다.
-func (g *Gemini) SuggestDraft(ctx context.Context, affiliate string, avoid []string, hint string) (*AutoDraft, error) {
+func (g *Gemini) SuggestDraft(ctx context.Context, affiliate string, avoid []string, hint string, hook hookType) (*AutoDraft, error) {
 	var lastErr error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		if attempt > 0 {
@@ -385,7 +409,7 @@ func (g *Gemini) SuggestDraft(ctx context.Context, affiliate string, avoid []str
 			}
 		}
 
-		d, err := g.suggestOnce(ctx, affiliate, avoid, hint)
+		d, err := g.suggestOnce(ctx, affiliate, avoid, hint, hook)
 		if err == nil {
 			return d, nil
 		}
@@ -399,7 +423,7 @@ func (g *Gemini) SuggestDraft(ctx context.Context, affiliate string, avoid []str
 	return nil, fmt.Errorf("%d번 시도했지만 실패했다: %w", maxAttempts, lastErr)
 }
 
-func (g *Gemini) suggestOnce(ctx context.Context, affiliate string, avoid []string, hint string) (*AutoDraft, error) {
+func (g *Gemini) suggestOnce(ctx context.Context, affiliate string, avoid []string, hint string, hook hookType) (*AutoDraft, error) {
 	prompt := "상품을 하나 골라 글을 써라."
 	if hint != "" {
 		prompt += "\n이번에는 " + hint + "으로 고른다."
@@ -407,6 +431,7 @@ func (g *Gemini) suggestOnce(ctx context.Context, affiliate string, avoid []stri
 	if len(avoid) > 0 {
 		prompt += "\n\n아래 상품은 이미 다뤘으니 피해라:\n- " + strings.Join(avoid, "\n- ")
 	}
+	prompt += hookPrompt(hook)
 
 	raw, err := g.call(ctx, autoSystemPrompt, prompt)
 	if err != nil {
@@ -442,7 +467,7 @@ func (g *Gemini) suggestOnce(ctx context.Context, affiliate string, avoid []stri
 
 // SuggestFromToss는 토스 상품 목록에서 하나를 골라 글을 쓴다.
 // 고른 상품의 목록 내 위치를 함께 돌려준다.
-func (g *Gemini) SuggestFromToss(ctx context.Context, products []TossProduct) (int, *AutoDraft, error) {
+func (g *Gemini) SuggestFromToss(ctx context.Context, products []TossProduct, hook hookType) (int, *AutoDraft, error) {
 	var lastErr error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		if attempt > 0 {
@@ -455,7 +480,7 @@ func (g *Gemini) SuggestFromToss(ctx context.Context, products []TossProduct) (i
 			}
 		}
 
-		i, d, err := g.suggestTossOnce(ctx, products)
+		i, d, err := g.suggestTossOnce(ctx, products, hook)
 		if err == nil {
 			return i, d, nil
 		}
@@ -469,7 +494,7 @@ func (g *Gemini) SuggestFromToss(ctx context.Context, products []TossProduct) (i
 	return 0, nil, fmt.Errorf("%d번 시도했지만 실패했다: %w", maxAttempts, lastErr)
 }
 
-func (g *Gemini) suggestTossOnce(ctx context.Context, products []TossProduct) (int, *AutoDraft, error) {
+func (g *Gemini) suggestTossOnce(ctx context.Context, products []TossProduct, hook hookType) (int, *AutoDraft, error) {
 	var b strings.Builder
 	b.WriteString("아래 상품 중 하나를 골라 글을 써라.\n\n")
 	for i, p := range products {
@@ -485,6 +510,8 @@ func (g *Gemini) suggestTossOnce(ctx context.Context, products []TossProduct) (i
 		}
 		b.WriteString("\n")
 	}
+
+	b.WriteString(hookPrompt(hook))
 
 	raw, err := g.call(ctx, tossSystemPrompt, b.String())
 	if err != nil {
