@@ -523,3 +523,12 @@ func (db *DB) FirstTossAuthor(ctx context.Context) (string, error) {
 	}
 	return userID, err
 }
+
+// CountPublishedToss는 그 계정이 게시한 토스 글 수를 기간 안과 전체로 센다.
+func (db *DB) CountPublishedToss(ctx context.Context, userID string, from, to time.Time) (inRange, total int, err error) {
+	err = db.pool.QueryRow(ctx,
+		`SELECT count(*) FILTER (WHERE published_at >= $4 AND published_at < $5), count(*)
+		 FROM posts WHERE user_id = $1 AND affiliate = $2 AND status = $3`,
+		userID, AffiliateToss, StatusPublished, from, to).Scan(&inRange, &total)
+	return inRange, total, err
+}
