@@ -40,43 +40,10 @@
   </form>
 </section>
 
-<!-- 2. 사진 (선택). 미리보기 폼 안에 두면 삭제 폼이 중첩되므로 따로 둔다. -->
+<!-- 2. 게시글 작성 (연필을 누르면 그 자리에서 고치고, 본문 아래에서 사진을 넣고 뺀다) -->
 <section class="step">
-  <h2 class="step-title"><span class="step-num">2</span> 사진</h2>
-  <p class="step-hint">본문 첫 글에 붙어요. {{.MaxImages}}장까지, 올린 지 10일이 지나거나 재생성하면 지워져요. 게시하면 여기선 지워지고 Threads에는 남아요.</p>
-
-  {{if .Images}}
-  <div class="photo-grid">
-    {{range .Images}}
-    <figure class="photo">
-      <img src="/media/{{.Token}}" alt="첨부한 사진" loading="lazy">
-      {{if canEditImages $.Post}}
-      <form method="post" action="/drafts/{{$.Post.ID}}/images/{{.ID}}/delete">
-        <button class="photo-del" type="submit" title="사진 빼기" aria-label="사진 빼기">×</button>
-      </form>
-      {{end}}
-    </figure>
-    {{end}}
-  </div>
-  {{end}}
-
-  {{if and (canEditImages .Post) (lt (len .Images) .MaxImages)}}
-  <!-- 브라우저에서 줄여서 올린다 (app.js). -->
-  <div class="photo-add" id="photo-add" data-action="/drafts/{{.Post.ID}}/images"
-       data-room="{{len .Images}}" data-max="{{.MaxImages}}">
-    <label class="btn btn-small">
-      사진 추가
-      <input type="file" accept="image/*" multiple hidden>
-    </label>
-    <span class="hint" id="photo-status"></span>
-  </div>
-  {{end}}
-</section>
-
-<!-- 3. 게시글 미리보기 (연필을 누르면 그 자리에서 고친다) -->
-<section class="step">
-  <h2 class="step-title"><span class="step-num">3</span> 게시글 미리보기</h2>
-  <p class="step-hint">연필을 눌러 그 자리에서 고칠 수 있어요.</p>
+  <h2 class="step-title"><span class="step-num">2</span> 게시글 작성</h2>
+  <p class="step-hint">글을 수정하고, 본문 아래에서 사진을 첨부할 수 있어요.</p>
 
   <form method="post" action="/drafts/{{.Post.ID}}" id="edit-form">
     <div class="thread">
@@ -99,10 +66,27 @@
             <textarea name="body" id="body" rows="6" data-room="{{.Room}}">{{.Post.Body}}</textarea>
             <span class="counter" id="counter" data-room="{{.Room}}">{{.Used}} / {{.Room}}</span>
           </div>
-          {{if .Images}}
-          <div class="tphotos">
-            {{range .Images}}<img src="/media/{{.Token}}" alt="" loading="lazy">{{end}}
+          {{/* 사진은 본문 첫 글에 붙는다. 넣고 빼기는 app.js가 바로 서버에 보낸다.
+               이 폼 안에 삭제 폼을 둘 수 없어 버튼에 주소만 달아둔다. */}}
+          {{$canEdit := canEditImages .Post}}
+          {{if or .Images $canEdit}}
+          <div class="tphotos" id="photo-add" data-action="/drafts/{{.Post.ID}}/images"
+               data-room="{{len .Images}}" data-max="{{.MaxImages}}">
+            {{range .Images}}
+            <figure class="tphoto">
+              <img src="/media/{{.Token}}" alt="첨부한 사진" loading="lazy" data-zoom tabindex="0" role="button" aria-label="사진 크게 보기">
+              {{if $canEdit}}<button class="photo-del" type="button" data-delete="/drafts/{{$.Post.ID}}/images/{{.ID}}/delete" title="사진 빼기" aria-label="사진 빼기">×</button>{{end}}
+            </figure>
+            {{end}}
+            {{if and $canEdit (lt (len .Images) .MaxImages)}}
+            <label class="tphoto-add" title="사진 넣기">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="14" height="14" rx="2.5"/><path d="m3 15 3.5-3.5a1.5 1.5 0 0 1 2.1 0L13 16"/><circle cx="12.5" cy="9.5" r="1.3"/><path d="M20 3v6M17 6h6"/></svg>
+              <span>사진 넣기</span>
+              <input type="file" accept="image/*" multiple hidden aria-label="사진 넣기">
+            </label>
+            {{end}}
           </div>
+          <p class="hint photo-status" id="photo-status">{{if .Images}}사진은 {{.MaxImages}}장까지, 올린 지 10일이 지나면 지워져요.{{end}}</p>
           {{end}}
         </div>
       </article>
@@ -172,9 +156,9 @@
   </form>
 </section>
 
-<!-- 4. Threads에 게시 -->
+<!-- 3. Threads에 게시 -->
 <section class="step">
-  <h2 class="step-title"><span class="step-num">4</span> Threads에 게시</h2>
+  <h2 class="step-title"><span class="step-num">3</span> Threads에 게시</h2>
 
   {{if canResume .Post}}
   <p class="notice">게시가 중간에 멈췄어요. 이어서 누르면 남은 답글만 올립니다.</p>

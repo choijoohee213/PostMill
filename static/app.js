@@ -122,6 +122,48 @@ if (document.getElementById('poll')) {
   var status = document.getElementById('photo-status');
   var room = parseInt(box.dataset.max, 10) - parseInt(box.dataset.room, 10);
 
+  // 사진 빼기: 게시글 폼 안이라 따로 폼을 둘 수 없어 바로 보낸다.
+  box.querySelectorAll('[data-delete]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      btn.disabled = true;
+      fetch(btn.dataset.delete, { method: 'POST' }).then(function (res) {
+        if (!res.ok) throw new Error();
+        location.reload();
+      }).catch(function () {
+        btn.disabled = false;
+        status.textContent = '사진을 빼지 못했어요.';
+      });
+    });
+  });
+  // 사진 크게 보기: 누르면 화면 가득 띄우고, 다시 누르거나 Esc로 닫는다.
+  box.querySelectorAll('[data-zoom]').forEach(function (img) {
+    function open() {
+      var overlay = document.createElement('div');
+      overlay.className = 'zoom';
+      overlay.setAttribute('role', 'dialog');
+      overlay.setAttribute('aria-label', '사진 크게 보기');
+      var big = document.createElement('img');
+      big.src = img.src;
+      big.alt = img.alt;
+      overlay.appendChild(big);
+      function close() {
+        overlay.remove();
+        document.removeEventListener('keydown', onKey);
+        img.focus();
+      }
+      function onKey(e) { if (e.key === 'Escape') close(); }
+      overlay.addEventListener('click', close);
+      document.addEventListener('keydown', onKey);
+      document.body.appendChild(overlay);
+    }
+    img.addEventListener('click', open);
+    img.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+    });
+  });
+
+  if (!input) return;
+
   function shrink(file) {
     return createImageBitmap(file, { imageOrientation: 'from-image' }).then(function (bmp) {
       if (bmp.width < 320) throw new Error('가로가 320px보다 작은 사진은 올릴 수 없어요.');
