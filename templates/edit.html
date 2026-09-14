@@ -128,6 +128,8 @@
         </div>
       </article>
 
+      {{/* 답글은 하나다. 예전에 두 번째 답글까지 만든 초안만 그 칸을 보여준다. */}}
+      {{if .Post.Detail2}}
       <article class="tpost" id="preview-detail2-card"{{if not .Post.Detail2}} data-empty="1"{{end}}>
         <div class="tpost-rail">
           {{template "avatar_sm"}}
@@ -148,6 +150,7 @@
           </div>
         </div>
       </article>
+      {{end}}
 
       <article class="tpost tpost-last">
         <div class="tpost-rail">

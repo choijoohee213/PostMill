@@ -268,8 +268,8 @@ func TestTossCandidates(t *testing.T) {
 func TestSuggestFromToss_번호로_상품을_고른다(t *testing.T) {
 	shortBackoff(t)
 	replies := []string{
-		"맨 위에 거\n---\n본문\n---\n답1\n---\n답2", // 번호가 아니면 다시 뽑는다
-		"2번\n---\n본문이야\n---\n답글하나\n---\n답글둘",
+		"맨 위에 거\n---\n본문\n---\n답1", // 번호가 아니면 다시 뽑는다
+		"2번\n---\n본문이야\n---\n답글하나",
 	}
 	n := 0
 	g, calls := fakeGemini(t, func(w http.ResponseWriter, r *http.Request) {
@@ -285,7 +285,7 @@ func TestSuggestFromToss_번호로_상품을_고른다(t *testing.T) {
 	if *calls != 2 {
 		t.Fatalf("호출 %d번, 번호를 못 읽으면 다시 뽑아야 한다", *calls)
 	}
-	if i != 1 || d.ProductName != "둘째" || d.Body != "본문이야" || d.Detail2 != "답글둘" {
+	if i != 1 || d.ProductName != "둘째" || d.Body != "본문이야" || d.Detail != "답글하나" {
 		t.Fatalf("i=%d d=%+v", i, d)
 	}
 }
@@ -293,7 +293,7 @@ func TestSuggestFromToss_번호로_상품을_고른다(t *testing.T) {
 func tossGemini(t *testing.T) *Gemini {
 	t.Helper()
 	g, _ := fakeGemini(t, func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, okBody("1\n---\n본문\n---\n답글하나\n---\n답글둘"))
+		fmt.Fprint(w, okBody("1\n---\n본문\n---\n답글하나"))
 	})
 	return g
 }

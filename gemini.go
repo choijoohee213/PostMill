@@ -319,13 +319,13 @@ const autoSystemPrompt = `너는 스레드(Threads)에 제휴 마케팅 글을 �
   종류로만 적는다. 사용자가 이 이름으로 검색해서 직접 상품을 고를 것이다.
 - 사람들이 "아 이거 나도 불편했는데" 할 만한, 사소한 불편을 해결하는 물건이 좋다.
 
-출력 형식은 네 부분이고 사이에 --- 만 있는 줄을 넣는다.
+출력 형식은 세 부분이고 사이에 --- 만 있는 줄을 넣는다.
 
 [1] 상품 이름 한 줄. 검색어로 쓸 수 있게 짧게.
 ` + autoReplyParts + `
 ` + autoVoiceRules + `
 ` + factRules + `
-다른 말 없이 네 부분만 출력한다.`
+다른 말 없이 세 부분만 출력한다.`
 
 // factRules는 모든 초안이 지키는 사실 규칙이다.
 //
@@ -348,23 +348,19 @@ const factRules = `지어내지 말 것 (가장 중요하다):
 - 쓸까 말까 애매하면 쓰지 말고 상황과 기분으로 돌려 말한다.
 `
 
-// autoReplyParts는 자동 초안의 본문과 답글 두 개 형식이다. 상품을 고르는 방식만
+// autoReplyParts는 자동 초안의 본문과 답글 하나의 형식이다. 상품을 고르는 방식만
 // 다르고 글 형식은 같으므로 쿠팡·토스 프롬프트가 함께 쓴다.
 const autoReplyParts = `---
 [2] 본문. 아주 짧게, 3~4줄, 80자 안팎.
     구성은 요청에 적힌 훅 유형을 따른다. 장점은 딱 하나만 담는다.
 ---
-[3] 첫 번째 답글. 2~4줄, 100자 안팎.
-    본문에서 안 쓴 이야기를 푼다. 본문에 쓴 말을 되풀이하지 마라.
----
-[4] 두 번째 답글. 2~4줄, 100자 안팎.
-    3번에 이어지는 다른 이야기를 쓴다. 3번과 다른 각도여야 한다.
-    예를 들어 3번이 쓰는 순간의 기분이면 4번은 생활이 어떻게 달라졌는지를 쓴다.
-    혼잣말을 덧붙이듯 자연스럽게 이어라.
+[3] 답글. 3~5줄, 120자 안팎.
+    본문에서 안 쓴 이야기를 푼다. 언제 어디서 쓰는지, 생활이 어떻게 달라졌는지 같은
+    장면이나 기분을 이야기하듯 쓴다. 본문에 쓴 말을 되풀이하지 마라.
 `
 
 // autoVoiceRules는 자동 초안의 말투 규칙이다.
-const autoVoiceRules = `말투 (2, 3, 4 모두):
+const autoVoiceRules = `말투 (2, 3 모두):
 - 반말. 친구한테 카톡하듯. 직접 써본 1인칭으로 쓴다.
 - 한 줄은 짧게 끊고 줄바꿈을 자주 넣는다.
 - "그리고", "또", "게다가", "무엇보다" 로 항목을 이어붙이지 마라.
@@ -384,7 +380,7 @@ const tossSystemPrompt = `너는 스레드(Threads)에 제휴 마케팅 글을 �
 - 만원에서 오만원 사이의 물건이 좋다. 너무 비싼 물건은 피한다.
 - 옷이나 신발처럼 사이즈를 골라야 하는 것, 신선식품은 피한다.
 
-출력 형식은 네 부분이고 사이에 --- 만 있는 줄을 넣는다.
+출력 형식은 세 부분이고 사이에 --- 만 있는 줄을 넣는다.
 
 [1] 고른 상품의 번호만. 숫자 하나.
 ` + autoReplyParts + `
@@ -393,7 +389,7 @@ const tossSystemPrompt = `너는 스레드(Threads)에 제휴 마케팅 글을 �
 - 상품명을 그대로 옮기지 말고 "이 무선 청소기"처럼 종류로 말한다.
 - 목록의 가격·할인·리뷰는 고르는 데만 쓰고 글에는 쓰지 않는다. 금방 바뀐다.
 
-다른 말 없이 네 부분만 출력한다.`
+다른 말 없이 세 부분만 출력한다.`
 
 // AutoDraft는 AI가 상품까지 고른 초안이다.
 type AutoDraft struct {
@@ -403,7 +399,6 @@ type AutoDraft struct {
 	TacaItemID    int64  // 토스 API로 고른 상품. 쿠팡은 0
 	Body          string
 	Detail        string
-	Detail2       string
 }
 
 // SuggestDraft는 상품 선정부터 본문까지 한 번에 만든다.
@@ -450,16 +445,15 @@ func (g *Gemini) suggestOnce(ctx context.Context, affiliate string, avoid []stri
 		return nil, err
 	}
 
-	parts := splitParts(raw, 4)
-	if len(parts) < 4 {
-		return nil, retryableError{fmt.Errorf("출력이 네 부분으로 나뉘지 않았다")}
+	parts := splitParts(raw, 3)
+	if len(parts) < 3 {
+		return nil, retryableError{fmt.Errorf("출력이 세 부분으로 나뉘지 않았다")}
 	}
 
 	d := &AutoDraft{
 		ProductName: firstLine(parts[0]),
 		Body:        parts[1],
 		Detail:      parts[2],
-		Detail2:     parts[3],
 	}
 	if d.ProductName == "" || d.Body == "" {
 		return nil, retryableError{fmt.Errorf("상품 이름이나 본문이 비었다")}
@@ -467,11 +461,8 @@ func (g *Gemini) suggestOnce(ctx context.Context, affiliate string, avoid []stri
 	if n := CharCount(d.Body); n > bodyMaxChars {
 		return nil, retryableError{fmt.Errorf("본문이 %d자로 상한 %d자를 넘는다", n, bodyMaxChars)}
 	}
-	for i, t := range []string{d.Detail, d.Detail2} {
-		if n := CharCount(t); n > detailMaxChars {
-			return nil, retryableError{
-				fmt.Errorf("답글 %d이 %d자로 상한 %d자를 넘는다", i+1, n, detailMaxChars)}
-		}
+	if n := CharCount(d.Detail); n > detailMaxChars {
+		return nil, retryableError{fmt.Errorf("답글이 %d자로 상한 %d자를 넘는다", n, detailMaxChars)}
 	}
 	d.ProductURL = SearchURL(affiliate, d.ProductName)
 	return d, nil
@@ -530,9 +521,9 @@ func (g *Gemini) suggestTossOnce(ctx context.Context, products []TossProduct, ho
 		return 0, nil, err
 	}
 
-	parts := splitParts(raw, 4)
-	if len(parts) < 4 {
-		return 0, nil, retryableError{fmt.Errorf("출력이 네 부분으로 나뉘지 않았다")}
+	parts := splitParts(raw, 3)
+	if len(parts) < 3 {
+		return 0, nil, retryableError{fmt.Errorf("출력이 세 부분으로 나뉘지 않았다")}
 	}
 	n, err := strconv.Atoi(strings.Trim(firstLine(parts[0]), " .[]번"))
 	if err != nil || n < 1 || n > len(products) {
@@ -543,7 +534,6 @@ func (g *Gemini) suggestTossOnce(ctx context.Context, products []TossProduct, ho
 		ProductName: products[n-1].DisplayName,
 		Body:        parts[1],
 		Detail:      parts[2],
-		Detail2:     parts[3],
 	}
 	if d.Body == "" {
 		return 0, nil, retryableError{fmt.Errorf("본문이 비었다")}
@@ -551,11 +541,8 @@ func (g *Gemini) suggestTossOnce(ctx context.Context, products []TossProduct, ho
 	if n := CharCount(d.Body); n > bodyMaxChars {
 		return 0, nil, retryableError{fmt.Errorf("본문이 %d자로 상한 %d자를 넘는다", n, bodyMaxChars)}
 	}
-	for i, t := range []string{d.Detail, d.Detail2} {
-		if n := CharCount(t); n > detailMaxChars {
-			return 0, nil, retryableError{
-				fmt.Errorf("답글 %d이 %d자로 상한 %d자를 넘는다", i+1, n, detailMaxChars)}
-		}
+	if n := CharCount(d.Detail); n > detailMaxChars {
+		return 0, nil, retryableError{fmt.Errorf("답글이 %d자로 상한 %d자를 넘는다", n, detailMaxChars)}
 	}
 	return n - 1, d, nil
 }
