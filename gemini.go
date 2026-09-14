@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -41,6 +42,10 @@ type retryableError struct {
 var errDailyQuota = errors.New("Gemini 하루 사용량을 다 썼다")
 
 func (e retryableError) Error() string { return e.err.Error() }
+func (e retryableError) Unwrap() error { return e.err }
+
+// errRateLimited는 한도(429)에 걸린 경우다. 키가 여러 개면 다음 키로 넘어간다.
+var errRateLimited = errors.New("Gemini 한도에 걸렸다")
 
 const draftSystemPrompt = `너는 스레드(Threads)에 제휴 마케팅 글을 올리는 평범한 사람이다.
 광고 대행사가 아니라, 물건 써보고 좋아서 한마디 하는 사람의 말투로 쓴다.
@@ -120,14 +125,26 @@ const (
 // Gemini는 Generative Language API를 표준 net/http로 호출한다.
 // 클라이언트 라이브러리를 쓰지 않는다 (SPEC 9-1).
 type Gemini struct {
-	APIKey  string
+	// APIKeys는 차례로 쓸 키다. 쓰던 키가 한도에 걸리면 다음 키로 넘어간다.
+	// 한도는 키가 아니라 Google Cloud 프로젝트 단위라 키마다 프로젝트가 달라야 한다.
+	APIKeys []string
 	HTTP    *http.Client
 	BaseURL string // 테스트에서 가짜 서버를 가리키기 위해 주입할 수 있다
+
+	mu  sync.Mutex
+	cur int // 다음 요청을 보낼 키
 }
 
-func NewGemini(apiKey string) *Gemini {
+// NewGemini는 쉼표로 구분한 키 목록을 받는다. 키 하나여도 된다.
+func NewGemini(apiKeys string) *Gemini {
+	var keys []string
+	for _, k := range strings.Split(apiKeys, ",") {
+		if k = strings.TrimSpace(k); k != "" {
+			keys = append(keys, k)
+		}
+	}
 	return &Gemini{
-		APIKey:  apiKey,
+		APIKeys: keys,
 		HTTP:    &http.Client{Timeout: 90 * time.Second},
 		BaseURL: geminiEndpoint,
 	}
@@ -275,13 +292,42 @@ func (g *Gemini) callTokens(ctx context.Context, system, prompt string, maxToken
 		return "", err
 	}
 
+	g.mu.Lock()
+	start, n := g.cur, len(g.APIKeys)
+	g.mu.Unlock()
+	if n == 0 {
+		return "", errors.New("Gemini API 키가 없다")
+	}
+
+	// 쓰던 키부터 차례로 보내고, 한도에 걸린 키는 건너뛴다. 모든 키가 걸리면
+	// 마지막 실패를 돌려준다(분당 한도면 retry가 기다렸다 다시 부른다).
+	var lastErr error
+	for i := 0; i < n; i++ {
+		k := (start + i) % n
+		text, err := g.callKey(ctx, g.APIKeys[k], payload)
+		if !errors.Is(err, errRateLimited) && !errors.Is(err, errDailyQuota) {
+			return text, err
+		}
+		lastErr = err
+		g.mu.Lock()
+		g.cur = (k + 1) % n
+		g.mu.Unlock()
+		if n > 1 {
+			log.Printf("Gemini 키 %d/%d 한도 초과, 다음 키로 넘어간다: %v", k+1, n, err)
+		}
+	}
+	return "", lastErr
+}
+
+// callKey는 키 하나로 요청을 보낸다.
+func (g *Gemini) callKey(ctx context.Context, key string, payload []byte) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		g.BaseURL+geminiModel+":generateContent", bytes.NewReader(payload))
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-goog-api-key", g.APIKey)
+	req.Header.Set("x-goog-api-key", key)
 
 	resp, err := g.HTTP.Do(req)
 	if err != nil {
@@ -320,10 +366,11 @@ func (g *Gemini) callTokens(ctx context.Context, system, prompt string, maxToken
 			}
 			// 분당 한도는 알려준 시간만큼 기다리면 풀린다. 너무 길면 요청이 끝나기 전에
 			// 못 풀리므로 포기한다.
+			limited := fmt.Errorf("%w: %v", errRateLimited, statusErr)
 			if wait > maxRetryWait {
-				return "", statusErr
+				return "", limited
 			}
-			return "", retryableError{err: statusErr, wait: wait}
+			return "", retryableError{err: limited, wait: wait}
 		}
 		// 5xx(서버 혼잡)는 잠시 뒤면 풀린다.
 		// 400이나 401 같은 요청 자체의 문제는 다시 보내도 같은 결과다.
