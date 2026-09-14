@@ -448,6 +448,12 @@ main {
   stroke-linejoin: round;
 }
 
+/* 아주 좁은 화면에서는 네 개가 한 줄에 안 들어가 아이콘을 뺀다. */
+@media (max-width: 360px) {
+  .topnav svg { display: none; }
+  .topnav a { padding: 5px 9px; }
+}
+
 /* 설정 화면 */
 .panel {
   margin: 20px 0;
