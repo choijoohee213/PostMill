@@ -122,6 +122,21 @@ if (document.getElementById('poll')) {
   var status = document.getElementById('photo-status');
   var room = parseInt(box.dataset.max, 10) - parseInt(box.dataset.room, 10);
 
+  // 사진 빼기: 게시글 폼 안이라 따로 폼을 둘 수 없어 바로 보낸다.
+  box.querySelectorAll('[data-delete]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      btn.disabled = true;
+      fetch(btn.dataset.delete, { method: 'POST' }).then(function (res) {
+        if (!res.ok) throw new Error();
+        location.reload();
+      }).catch(function () {
+        btn.disabled = false;
+        status.textContent = '사진을 빼지 못했어요.';
+      });
+    });
+  });
+  if (!input) return;
+
   function shrink(file) {
     return createImageBitmap(file, { imageOrientation: 'from-image' }).then(function (bmp) {
       if (bmp.width < 320) throw new Error('가로가 320px보다 작은 사진은 올릴 수 없어요.');
