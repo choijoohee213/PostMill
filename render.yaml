@@ -29,3 +29,11 @@ services:
         sync: false
       - key: THREADS_APP_SECRET
         sync: false
+      # 토스 쉐어링크 Open API. 셋 다 있어야 토스 자동 초안이 실제 상품을 고르고
+      # 쉐어링크를 발급한다. 없으면 쿠팡처럼 상품 종류만 제안한다.
+      - key: TOSS_ACCESS_KEY
+        sync: false
+      - key: TOSS_SECRET_KEY
+        sync: false
+      - key: TOSS_PUBLISHER_ID
+        sync: false
