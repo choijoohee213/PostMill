@@ -236,7 +236,7 @@ func TestTossCandidates(t *testing.T) {
 		{TacaItemID: 8, DisplayName: "베스트 D"},
 	}
 
-	all := tossCandidates(append(deals, best...), []string{"최근에 다룸"}, now, -1, 3)
+	all := tossCandidates(append(deals, best...), []string{"최근에 다룸"}, now)
 	var ids []int64
 	for _, p := range all {
 		ids = append(ids, p.TacaItemID)
@@ -247,29 +247,13 @@ func TestTossCandidates(t *testing.T) {
 	if all[0].EndAt == "" {
 		t.Error("특가 표시가 사라졌다")
 	}
-
-	// 동시에 만드는 초안끼리 후보가 겹치지 않는다.
-	seen := map[int64]int{}
-	for slot := 0; slot < 3; slot++ {
-		for _, p := range tossCandidates(append(deals, best...), []string{"최근에 다룸"}, now, slot, 3) {
-			seen[p.TacaItemID]++
-		}
-	}
-	if len(seen) != 5 {
-		t.Fatalf("나눈 후보 합=%v, 전체와 같아야 한다", seen)
-	}
-	for id, n := range seen {
-		if n != 1 {
-			t.Errorf("상품 %d이 %d개 몫에 들어갔다", id, n)
-		}
-	}
 }
 
-func TestSuggestFromToss_번호로_상품을_고른다(t *testing.T) {
+func TestSuggestFromTossBatch_장마다_서로_다른_상품을_고른다(t *testing.T) {
 	shortBackoff(t)
 	replies := []string{
-		"맨 위에 거\n---\n본문\n---\n답1", // 번호가 아니면 다시 뽑는다
-		"2번\n---\n본문이야\n---\n답글하나",
+		"맨 위에 거\n---\n본문\n---\n답1", // 한 장도 못 알아보면 다시 뽑는다
+		"2번\n---\n본문이야\n---\n답글하나\n=====\n2\n---\n같은 상품\n---\n답\n=====\n1\n---\n첫째 본문\n---\n첫째 답글",
 	}
 	n := 0
 	g, calls := fakeGemini(t, func(w http.ResponseWriter, r *http.Request) {
@@ -278,15 +262,41 @@ func TestSuggestFromToss_번호로_상품을_고른다(t *testing.T) {
 	})
 	products := []TossProduct{{DisplayName: "첫째"}, {DisplayName: "둘째"}}
 
-	i, d, err := g.SuggestFromToss(context.Background(), products, hookTypes[0])
+	picks, drafts, err := g.SuggestFromTossBatch(context.Background(), products, hookTypes[:3])
 	if err != nil {
 		t.Fatal(err)
 	}
 	if *calls != 2 {
-		t.Fatalf("호출 %d번, 번호를 못 읽으면 다시 뽑아야 한다", *calls)
+		t.Fatalf("호출 %d번, 한 장도 못 읽으면 다시 뽑아야 한다", *calls)
 	}
-	if i != 1 || d.ProductName != "둘째" || d.Body != "본문이야" || d.Detail != "답글하나" {
-		t.Fatalf("i=%d d=%+v", i, d)
+	if picks[0] != 1 || drafts[0].ProductName != "둘째" || drafts[0].Body != "본문이야" || drafts[0].Detail != "답글하나" {
+		t.Fatalf("첫 장 pick=%d d=%+v", picks[0], drafts[0])
+	}
+	if picks[1] != -1 || drafts[1] != nil {
+		t.Errorf("같은 상품을 고른 둘째 장을 받아들였다: pick=%d d=%+v", picks[1], drafts[1])
+	}
+	if picks[2] != 0 || drafts[2].ProductName != "첫째" {
+		t.Errorf("셋째 장 pick=%d d=%+v", picks[2], drafts[2])
+	}
+}
+
+func TestSuggestDrafts_형식이_틀린_장만_버린다(t *testing.T) {
+	g, calls := fakeGemini(t, func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, okBody("청소기\n---\n본문1\n---\n답1\n=====\n구분자가 모자란 장\n=====\n텀블러\n---\n본문3\n---\n답3"))
+	})
+	specs := []draftSpec{{Hook: hookTypes[0]}, {Hook: hookTypes[1]}, {Hook: hookTypes[2]}}
+	drafts, err := g.SuggestDrafts(context.Background(), AffiliateCoupang, nil, specs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *calls != 1 {
+		t.Fatalf("호출 %d번, 한 번이어야 한다", *calls)
+	}
+	if drafts[0] == nil || drafts[0].ProductName != "청소기" || drafts[1] != nil || drafts[2] == nil || drafts[2].Body != "본문3" {
+		t.Fatalf("drafts=%+v %+v %+v", drafts[0], drafts[1], drafts[2])
+	}
+	if !strings.Contains(drafts[2].ProductURL, "coupang.com") {
+		t.Errorf("쿠팡 검색 주소=%q", drafts[2].ProductURL)
 	}
 }
 
@@ -314,7 +324,7 @@ func TestSuggest_토스는_고른_상품의_쉐어링크까지_넣는다(t *test
 	id, _ := db.CreateDraft(ctx, user, AffiliateToss, "", "", "")
 	t.Cleanup(func() { db.DeletePost(ctx, user, id) })
 
-	a.suggest(id, user, AffiliateToss, nil, "", -1, hookTypes[0])
+	a.suggest([]int64{id}, user, AffiliateToss, nil, "", []draftSpec{{Hook: hookTypes[0]}})
 
 	p, _ := db.GetPost(ctx, user, id)
 	if p.Status != StatusPending || p.ErrorMsg != "" {
@@ -330,7 +340,7 @@ func TestSuggest_토스는_고른_상품의_쉐어링크까지_넣는다(t *test
 	// 토큰과 목록은 다시 받지 않는다.
 	id2, _ := db.CreateDraft(ctx, user, AffiliateToss, "", "", "")
 	t.Cleanup(func() { db.DeletePost(ctx, user, id2) })
-	a.suggest(id2, user, AffiliateToss, nil, "", -1, hookTypes[0])
+	a.suggest([]int64{id2}, user, AffiliateToss, nil, "", []draftSpec{{Hook: hookTypes[0]}})
 	if f.tokenCalls != 1 || f.listCalls != 1 {
 		t.Fatalf("토큰 %d번, 목록 %d번. 토큰 1번·목록 1번(베스트)이어야 한다", f.tokenCalls, f.listCalls)
 	}
@@ -362,7 +372,7 @@ func TestSuggest_토스_API가_거부하면_이유를_남긴다(t *testing.T) {
 	id, _ := db.CreateDraft(ctx, user, AffiliateToss, "", "", "")
 	t.Cleanup(func() { db.DeletePost(ctx, user, id) })
 
-	a.suggest(id, user, AffiliateToss, nil, "", -1, hookTypes[0])
+	a.suggest([]int64{id}, user, AffiliateToss, nil, "", []draftSpec{{Hook: hookTypes[0]}})
 
 	p, _ := db.GetPost(ctx, user, id)
 	if p.Status != StatusGenerating || !strings.Contains(p.ErrorMsg, "IP") {

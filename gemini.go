@@ -27,8 +27,18 @@ const maxAttempts = 3
 
 var retryBackoff = []time.Duration{3 * time.Second, 8 * time.Second}
 
+// maxRetryWait보다 오래 기다리라고 하면 다시 시도하지 않는다.
+const maxRetryWait = 70 * time.Second
+
 // retryableError는 잠시 뒤 다시 시도하면 풀릴 가능성이 있는 실패다.
-type retryableError struct{ err error }
+type retryableError struct {
+	err  error
+	wait time.Duration // 모델이 이만큼 기다리라고 알려준 시간. 없으면 0
+}
+
+// errDailyQuota는 오늘 쓸 수 있는 요청을 다 쓴 경우다. 기다려도 오늘은
+// 풀리지 않으므로 다시 시도하지 않는다. 다시 시도하면 실패만 쌓인다.
+var errDailyQuota = errors.New("Gemini 하루 사용량을 다 썼다")
 
 func (e retryableError) Error() string { return e.err.Error() }
 
@@ -158,6 +168,13 @@ type geminiResponse struct {
 	} `json:"promptFeedback"`
 	Error struct {
 		Message string `json:"message"`
+		// 429에는 어떤 한도에 걸렸는지(QuotaFailure)와 기다릴 시간(RetryInfo)이 온다.
+		Details []struct {
+			Violations []struct {
+				QuotaID string `json:"quotaId"`
+			} `json:"violations"`
+			RetryDelay string `json:"retryDelay"`
+		} `json:"details"`
 	} `json:"error"`
 }
 
@@ -165,30 +182,44 @@ type geminiResponse struct {
 // 대가성 문구와 링크는 포함하지 않는다 (compose.go가 발행 시점에 붙인다).
 // 일시적인 실패는 maxAttempts만큼 다시 시도한다.
 func (g *Gemini) GenerateDraft(ctx context.Context, affiliate, memo string, room int, hook hookType) (string, string, error) {
+	var body, detail string
+	err := retry(ctx, "초안 생성", func() error {
+		var err error
+		body, detail, err = g.generateOnce(ctx, affiliate, memo, room, hook)
+		return err
+	})
+	return body, detail, err
+}
+
+// retry는 다시 시도할 만한 실패(retryableError)면 maxAttempts만큼 다시 부른다.
+// 모델이 기다리라고 알려준 시간이 있으면 그만큼 기다린다.
+func retry(ctx context.Context, label string, fn func() error) error {
 	var lastErr error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		if attempt > 0 {
 			wait := retryBackoff[attempt-1]
-			log.Printf("초안 생성 재시도 %d/%d (%v 후): %v", attempt+1, maxAttempts, wait, lastErr)
+			var re retryableError
+			if errors.As(lastErr, &re) && re.wait > wait {
+				wait = re.wait
+			}
+			log.Printf("%s 재시도 %d/%d (%v 후): %v", label, attempt+1, maxAttempts, wait, lastErr)
 			select {
 			case <-time.After(wait):
 			case <-ctx.Done():
-				return "", "", ctx.Err()
+				return ctx.Err()
 			}
 		}
-
-		body, detail, err := g.generateOnce(ctx, affiliate, memo, room, hook)
+		err := fn()
 		if err == nil {
-			return body, detail, nil
+			return nil
 		}
 		lastErr = err
-
-		var retryable retryableError
-		if !errors.As(err, &retryable) {
-			return "", "", err
+		var re retryableError
+		if !errors.As(err, &re) {
+			return err
 		}
 	}
-	return "", "", fmt.Errorf("%d번 시도했지만 실패했다: %w", maxAttempts, lastErr)
+	return fmt.Errorf("%d번 시도했지만 실패했다: %w", maxAttempts, lastErr)
 }
 
 func (g *Gemini) generateOnce(ctx context.Context, affiliate, memo string, room int, hook hookType) (string, string, error) {
@@ -213,13 +244,13 @@ func (g *Gemini) generateOnce(ctx context.Context, affiliate, memo string, room 
 	body, detail := splitDraft(raw)
 	// 아래는 생성이 매번 달라지므로 다시 뽑으면 통과할 수 있다.
 	if body == "" {
-		return "", "", retryableError{fmt.Errorf("모델이 빈 응답을 반환했다")}
+		return "", "", retryableError{err: fmt.Errorf("모델이 빈 응답을 반환했다")}
 	}
 	if n := CharCount(body); n > limit {
-		return "", "", retryableError{fmt.Errorf("생성된 본문이 %d자로 상한 %d자를 넘는다", n, limit)}
+		return "", "", retryableError{err: fmt.Errorf("생성된 본문이 %d자로 상한 %d자를 넘는다", n, limit)}
 	}
 	if n := CharCount(detail); n > detailMaxChars {
-		return "", "", retryableError{fmt.Errorf("생성된 디테일이 %d자로 상한 %d자를 넘는다", n, detailMaxChars)}
+		return "", "", retryableError{err: fmt.Errorf("생성된 디테일이 %d자로 상한 %d자를 넘는다", n, detailMaxChars)}
 	}
 	return body, detail, nil
 }
@@ -227,11 +258,16 @@ func (g *Gemini) generateOnce(ctx context.Context, affiliate, memo string, room 
 // call은 시스템 프롬프트와 요청을 보내고 응답 텍스트를 돌려준다.
 // 초안 생성과 자동 제안이 같은 호출부를 쓴다.
 func (g *Gemini) call(ctx context.Context, system, prompt string) (string, error) {
+	return g.callTokens(ctx, system, prompt, 2000)
+}
+
+// callTokens는 출력 토큰 상한을 정해 부른다. 초안 여러 장을 한 번에 받을 때 늘린다.
+func (g *Gemini) callTokens(ctx context.Context, system, prompt string, maxTokens int) (string, error) {
 	payload, err := json.Marshal(geminiRequest{
 		SystemInstruction: geminiContent{Parts: []geminiPart{{Text: system}}},
 		Contents:          []geminiContent{{Parts: []geminiPart{{Text: prompt}}}},
 		GenerationConfig: geminiGenConfig{
-			MaxOutputTokens: 2000,
+			MaxOutputTokens: maxTokens,
 			ThinkingConfig:  geminiThinkingConf{ThinkingLevel: "minimal"},
 		},
 	})
@@ -250,7 +286,7 @@ func (g *Gemini) call(ctx context.Context, system, prompt string) (string, error
 	resp, err := g.HTTP.Do(req)
 	if err != nil {
 		// 연결 실패나 타임아웃은 다시 시도해볼 만하다.
-		return "", retryableError{err}
+		return "", retryableError{err: err}
 	}
 	defer resp.Body.Close()
 
@@ -269,10 +305,30 @@ func (g *Gemini) call(ctx context.Context, system, prompt string) (string, error
 			msg = "본문 없음"
 		}
 		statusErr := fmt.Errorf("HTTP %d: %s", resp.StatusCode, msg)
-		// 429(요청 과다)와 5xx(서버 혼잡)는 잠시 뒤면 풀린다.
+		if resp.StatusCode == http.StatusTooManyRequests {
+			var wait time.Duration
+			for _, d := range parsed.Error.Details {
+				for _, v := range d.Violations {
+					// 하루 한도는 기다려도 오늘은 풀리지 않는다.
+					if strings.Contains(v.QuotaID, "PerDay") {
+						return "", fmt.Errorf("%w: %v", errDailyQuota, statusErr)
+					}
+				}
+				if w, err := time.ParseDuration(d.RetryDelay); err == nil {
+					wait = w
+				}
+			}
+			// 분당 한도는 알려준 시간만큼 기다리면 풀린다. 너무 길면 요청이 끝나기 전에
+			// 못 풀리므로 포기한다.
+			if wait > maxRetryWait {
+				return "", statusErr
+			}
+			return "", retryableError{err: statusErr, wait: wait}
+		}
+		// 5xx(서버 혼잡)는 잠시 뒤면 풀린다.
 		// 400이나 401 같은 요청 자체의 문제는 다시 보내도 같은 결과다.
-		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
-			return "", retryableError{statusErr}
+		if resp.StatusCode >= 500 {
+			return "", retryableError{err: statusErr}
 		}
 		return "", statusErr
 	}
@@ -280,7 +336,7 @@ func (g *Gemini) call(ctx context.Context, system, prompt string) (string, error
 		return "", fmt.Errorf("요청이 차단되었다: %s", parsed.PromptFeedback.BlockReason)
 	}
 	if len(parsed.Candidates) == 0 {
-		return "", retryableError{fmt.Errorf("모델이 후보를 반환하지 않았다")}
+		return "", retryableError{err: fmt.Errorf("모델이 후보를 반환하지 않았다")}
 	}
 
 	c := parsed.Candidates[0]
@@ -401,105 +457,72 @@ type AutoDraft struct {
 	Detail        string
 }
 
-// SuggestDraft는 상품 선정부터 본문까지 한 번에 만든다.
-// avoid에 적힌 상품은 피한다. 같은 걸 계속 제안하지 않게 하기 위해서다.
-func (g *Gemini) SuggestDraft(ctx context.Context, affiliate string, avoid []string, hint string, hook hookType) (*AutoDraft, error) {
-	var lastErr error
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		if attempt > 0 {
-			wait := retryBackoff[attempt-1]
-			log.Printf("자동 초안 재시도 %d/%d (%v 후): %v", attempt+1, maxAttempts, wait, lastErr)
-			select {
-			case <-time.After(wait):
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			}
-		}
-
-		d, err := g.suggestOnce(ctx, affiliate, avoid, hint, hook)
-		if err == nil {
-			return d, nil
-		}
-		lastErr = err
-
-		var retryable retryableError
-		if !errors.As(err, &retryable) {
-			return nil, err
-		}
-	}
-	return nil, fmt.Errorf("%d번 시도했지만 실패했다: %w", maxAttempts, lastErr)
+// draftSpec은 한 번에 만드는 초안 중 한 장의 요구다.
+type draftSpec struct {
+	Hint string // 쿠팡: 고를 분야. 토스는 쓰지 않는다
+	Hook hookType
 }
 
-func (g *Gemini) suggestOnce(ctx context.Context, affiliate string, avoid []string, hint string, hook hookType) (*AutoDraft, error) {
-	prompt := "상품을 하나 골라 글을 써라."
-	if hint != "" {
-		prompt += "\n이번에는 " + hint + "으로 고른다."
+// draftBatchSeparator는 한 응답에 담긴 초안과 초안 사이의 구분자다.
+const draftBatchSeparator = "====="
+
+// batchTokensPerDraft는 초안 한 장에 넉넉히 잡는 출력 토큰이다.
+const batchTokensPerDraft = 1500
+
+// SuggestDrafts는 상품 선정부터 본문까지 초안 여러 장을 한 번의 호출로 만든다.
+//
+// 한 장씩 부르면 무료 한도를 장수만큼 쓰고, 동시에 만드는 초안끼리 서로 뭘
+// 골랐는지 몰라 상품이 겹친다. 한 번에 만들면 둘 다 해결된다.
+// 형식이 틀린 장은 nil로 돌려준다. 한 장도 못 건졌을 때만 다시 시도한다.
+// avoid에 적힌 상품은 피한다.
+func (g *Gemini) SuggestDrafts(ctx context.Context, affiliate string, avoid []string, specs []draftSpec) ([]*AutoDraft, error) {
+	var b strings.Builder
+	fmt.Fprintf(&b, "초안 %d개를 쓴다. 초안마다 서로 다른 상품을 고른다.\n", len(specs))
+	for i, sp := range specs {
+		fmt.Fprintf(&b, "\n초안 %d: 훅은 %s이다. %s", i+1, sp.Hook.Name, sp.Hook.Guide)
+		if sp.Hint != "" {
+			fmt.Fprintf(&b, " 상품은 %s으로 고른다.", sp.Hint)
+		}
 	}
 	if len(avoid) > 0 {
-		prompt += "\n\n아래 상품은 이미 다뤘으니 피해라:\n- " + strings.Join(avoid, "\n- ")
+		b.WriteString("\n\n아래 상품은 이미 다뤘으니 피해라:\n- " + strings.Join(avoid, "\n- "))
 	}
-	prompt += hookPrompt(hook)
+	b.WriteString(batchFormat(len(specs)))
 
-	raw, err := g.call(ctx, autoSystemPrompt, prompt)
-	if err != nil {
-		return nil, err
-	}
-
-	parts := splitParts(raw, 3)
-	if len(parts) < 3 {
-		return nil, retryableError{fmt.Errorf("출력이 세 부분으로 나뉘지 않았다")}
-	}
-
-	d := &AutoDraft{
-		ProductName: firstLine(parts[0]),
-		Body:        parts[1],
-		Detail:      parts[2],
-	}
-	if d.ProductName == "" || d.Body == "" {
-		return nil, retryableError{fmt.Errorf("상품 이름이나 본문이 비었다")}
-	}
-	if n := CharCount(d.Body); n > bodyMaxChars {
-		return nil, retryableError{fmt.Errorf("본문이 %d자로 상한 %d자를 넘는다", n, bodyMaxChars)}
-	}
-	if n := CharCount(d.Detail); n > detailMaxChars {
-		return nil, retryableError{fmt.Errorf("답글이 %d자로 상한 %d자를 넘는다", n, detailMaxChars)}
-	}
-	d.ProductURL = SearchURL(affiliate, d.ProductName)
-	return d, nil
-}
-
-// SuggestFromToss는 토스 상품 목록에서 하나를 골라 글을 쓴다.
-// 고른 상품의 목록 내 위치를 함께 돌려준다.
-func (g *Gemini) SuggestFromToss(ctx context.Context, products []TossProduct, hook hookType) (int, *AutoDraft, error) {
-	var lastErr error
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		if attempt > 0 {
-			wait := retryBackoff[attempt-1]
-			log.Printf("토스 초안 재시도 %d/%d (%v 후): %v", attempt+1, maxAttempts, wait, lastErr)
-			select {
-			case <-time.After(wait):
-			case <-ctx.Done():
-				return 0, nil, ctx.Err()
+	var drafts []*AutoDraft
+	err := retry(ctx, "자동 초안", func() error {
+		raw, err := g.callTokens(ctx, autoSystemPrompt, b.String(), batchTokensPerDraft*len(specs))
+		if err != nil {
+			return err
+		}
+		drafts = make([]*AutoDraft, len(specs))
+		ok := 0
+		for i, chunk := range splitBatch(raw, len(specs)) {
+			parts := splitParts(chunk, 3)
+			if len(parts) < 3 {
+				continue
 			}
+			d := &AutoDraft{ProductName: firstLine(parts[0]), Body: parts[1], Detail: parts[2]}
+			if d.ProductName == "" || validDraft(d) != nil {
+				continue
+			}
+			d.ProductURL = SearchURL(affiliate, d.ProductName)
+			drafts[i] = d
+			ok++
 		}
-
-		i, d, err := g.suggestTossOnce(ctx, products, hook)
-		if err == nil {
-			return i, d, nil
+		if ok == 0 {
+			return retryableError{err: fmt.Errorf("초안을 한 장도 알아볼 수 없다")}
 		}
-		lastErr = err
-
-		var retryable retryableError
-		if !errors.As(err, &retryable) {
-			return 0, nil, err
-		}
-	}
-	return 0, nil, fmt.Errorf("%d번 시도했지만 실패했다: %w", maxAttempts, lastErr)
+		return nil
+	})
+	return drafts, err
 }
 
-func (g *Gemini) suggestTossOnce(ctx context.Context, products []TossProduct, hook hookType) (int, *AutoDraft, error) {
+// SuggestFromTossBatch는 토스 상품 목록에서 서로 다른 상품을 골라 초안 여러 장을
+// 한 번에 쓴다. 장마다 고른 상품의 목록 내 위치를 돌려주고, 못 쓴 장은 -1과 nil이다.
+func (g *Gemini) SuggestFromTossBatch(ctx context.Context, products []TossProduct, hooks []hookType) ([]int, []*AutoDraft, error) {
 	var b strings.Builder
-	b.WriteString("아래 상품 중 하나를 골라 글을 써라.\n\n")
+	fmt.Fprintf(&b, "아래 상품 중에서 서로 다른 상품 %d개를 골라 초안마다 하나씩 쓴다.\n\n", len(hooks))
 	for i, p := range products {
 		fmt.Fprintf(&b, "%d. %s | %d원", i+1, p.DisplayName, p.DisplayPrice)
 		if p.DiscountRate > 0 {
@@ -513,38 +536,91 @@ func (g *Gemini) suggestTossOnce(ctx context.Context, products []TossProduct, ho
 		}
 		b.WriteString("\n")
 	}
-
-	b.WriteString(hookPrompt(hook))
-
-	raw, err := g.call(ctx, tossSystemPrompt, b.String())
-	if err != nil {
-		return 0, nil, err
+	for i, h := range hooks {
+		fmt.Fprintf(&b, "\n초안 %d: 훅은 %s이다. %s", i+1, h.Name, h.Guide)
 	}
+	b.WriteString(batchFormat(len(hooks)))
 
-	parts := splitParts(raw, 3)
-	if len(parts) < 3 {
-		return 0, nil, retryableError{fmt.Errorf("출력이 세 부분으로 나뉘지 않았다")}
-	}
-	n, err := strconv.Atoi(strings.Trim(firstLine(parts[0]), " .[]번"))
-	if err != nil || n < 1 || n > len(products) {
-		return 0, nil, retryableError{fmt.Errorf("상품 번호를 알아볼 수 없다: %q", firstLine(parts[0]))}
-	}
+	var picks []int
+	var drafts []*AutoDraft
+	err := retry(ctx, "토스 초안", func() error {
+		raw, err := g.callTokens(ctx, tossSystemPrompt, b.String(), batchTokensPerDraft*len(hooks))
+		if err != nil {
+			return err
+		}
+		picks = make([]int, len(hooks))
+		drafts = make([]*AutoDraft, len(hooks))
+		used := map[int]bool{}
+		ok := 0
+		for i, chunk := range splitBatch(raw, len(hooks)) {
+			picks[i] = -1
+			parts := splitParts(chunk, 3)
+			if len(parts) < 3 {
+				continue
+			}
+			n, err := strconv.Atoi(strings.Trim(firstLine(parts[0]), " .[]번"))
+			// 같은 상품을 두 장에 쓰면 뒤의 것은 버린다.
+			if err != nil || n < 1 || n > len(products) || used[n] {
+				continue
+			}
+			d := &AutoDraft{ProductName: products[n-1].DisplayName, Body: parts[1], Detail: parts[2]}
+			if validDraft(d) != nil {
+				continue
+			}
+			used[n] = true
+			picks[i], drafts[i] = n-1, d
+			ok++
+		}
+		for i := len(splitBatch(raw, len(hooks))); i < len(hooks); i++ {
+			picks[i] = -1
+		}
+		if ok == 0 {
+			return retryableError{err: fmt.Errorf("초안을 한 장도 알아볼 수 없다")}
+		}
+		return nil
+	})
+	return picks, drafts, err
+}
 
-	d := &AutoDraft{
-		ProductName: products[n-1].DisplayName,
-		Body:        parts[1],
-		Detail:      parts[2],
+// batchFormat은 요청 끝에 붙이는 출력 형식 안내다.
+func batchFormat(n int) string {
+	if n == 1 {
+		return "\n\n초안 하나만 출력한다."
 	}
+	return fmt.Sprintf("\n\n초안 %d개를 순서대로 출력하고, 초안과 초안 사이에는 %s 만 있는 줄을 넣는다.", n, draftBatchSeparator)
+}
+
+// splitBatch는 응답을 초안별로 나눈다. 최대 n개까지만 돌려준다.
+func splitBatch(raw string, n int) []string {
+	var chunks []string
+	var cur []string
+	for _, line := range strings.Split(strings.TrimSpace(raw), "\n") {
+		if strings.TrimSpace(line) == draftBatchSeparator {
+			chunks = append(chunks, strings.Join(cur, "\n"))
+			cur = nil
+			continue
+		}
+		cur = append(cur, line)
+	}
+	chunks = append(chunks, strings.Join(cur, "\n"))
+	if len(chunks) > n {
+		chunks = chunks[:n]
+	}
+	return chunks
+}
+
+// validDraft는 본문과 답글이 길이 안에 드는지 본다.
+func validDraft(d *AutoDraft) error {
 	if d.Body == "" {
-		return 0, nil, retryableError{fmt.Errorf("본문이 비었다")}
+		return fmt.Errorf("본문이 비었다")
 	}
 	if n := CharCount(d.Body); n > bodyMaxChars {
-		return 0, nil, retryableError{fmt.Errorf("본문이 %d자로 상한 %d자를 넘는다", n, bodyMaxChars)}
+		return fmt.Errorf("본문이 %d자로 상한 %d자를 넘는다", n, bodyMaxChars)
 	}
 	if n := CharCount(d.Detail); n > detailMaxChars {
-		return 0, nil, retryableError{fmt.Errorf("답글이 %d자로 상한 %d자를 넘는다", n, detailMaxChars)}
+		return fmt.Errorf("답글이 %d자로 상한 %d자를 넘는다", n, detailMaxChars)
 	}
-	return n - 1, d, nil
+	return nil
 }
 
 // SearchURL은 상품을 찾아볼 검색 주소를 만든다.

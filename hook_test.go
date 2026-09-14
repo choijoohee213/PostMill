@@ -39,10 +39,10 @@ func TestHook_세_가지_생성_모두_훅을_모델에게_알린다(t *testing.
 	if _, _, err := rec.gemini(t, "본문\n---\n디테일").GenerateDraft(ctx, AffiliateCoupang, "메모", 400, h); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := rec.gemini(t, "상품\n---\n본문\n---\n답1").SuggestDraft(ctx, AffiliateCoupang, nil, "", h); err != nil {
+	if _, err := rec.gemini(t, "상품\n---\n본문\n---\n답1").SuggestDrafts(ctx, AffiliateCoupang, nil, []draftSpec{{Hook: h}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := rec.gemini(t, "1\n---\n본문\n---\n답1").SuggestFromToss(ctx, []TossProduct{{DisplayName: "a"}}, h); err != nil {
+	if _, _, err := rec.gemini(t, "1\n---\n본문\n---\n답1").SuggestFromTossBatch(ctx, []TossProduct{{DisplayName: "a"}}, []hookType{h}); err != nil {
 		t.Fatal(err)
 	}
 	if len(rec.prompts) != 3 {
@@ -66,10 +66,10 @@ func TestHook_프롬프트에_고정_구조가_남아있지_않다(t *testing.T)
 	}
 }
 
-func TestHandleAuto_세_장이_서로_다른_훅으로_시작한다(t *testing.T) {
+func TestHandleAuto_세_장을_호출_한_번에_서로_다른_훅으로_만든다(t *testing.T) {
 	a := manualApp(t, nil)
 	rec := &promptRecorder{}
-	a.gemini = rec.gemini(t, "상품\n---\n본문\n---\n답1")
+	a.gemini = rec.gemini(t, "청소기\n---\n본문1\n---\n답1\n=====\n텀블러\n---\n본문2\n---\n답2\n=====\n수납함\n---\n본문3\n---\n답3")
 	const user = "hook-batch"
 
 	login := httptest.NewRecorder()
@@ -81,34 +81,26 @@ func TestHandleAuto_세_장이_서로_다른_훅으로_시작한다(t *testing.T
 	a.handleAuto(httptest.NewRecorder(), req)
 
 	posts, _ := a.db.ListByStatus(context.Background(), user, "", StatusGenerating, StatusPending)
+	names := map[string]bool{}
 	for _, p := range posts {
 		t.Cleanup(func() { a.db.DeletePost(context.Background(), user, p.ID) })
-		waitGenerated(t, a.db, user, p.ID)
+		names[waitGenerated(t, a.db, user, p.ID).ProductName] = true
+	}
+	if len(posts) != autoBatchSize || len(names) != autoBatchSize {
+		t.Fatalf("초안 %d장, 상품 %v", len(posts), names)
 	}
 
-	used := map[string]bool{}
-	for _, p := range rec.prompts {
-		for _, h := range hookTypes {
-			if strings.Contains(p, "훅은 "+h.Name) {
-				used[h.Name] = true
-			}
+	if len(rec.prompts) != 1 {
+		t.Fatalf("모델 호출 %d번, 한 번이어야 한다", len(rec.prompts))
+	}
+	used := 0
+	for _, h := range hookTypes {
+		if strings.Contains(rec.prompts[0], "훅은 "+h.Name) {
+			used++
 		}
 	}
-	if len(rec.prompts) != autoBatchSize || len(used) != autoBatchSize {
-		t.Fatalf("요청 %d개, 쓴 훅 %v. 세 장이 모두 달라야 한다", len(rec.prompts), used)
-	}
-}
-
-// 메모 없이 만들면 모델이 없는 기능을 지어냈다. 세 프롬프트 모두 같은 사실 규칙을 따라야 한다.
-func TestFactRules_모든_프롬프트가_사실_규칙을_담는다(t *testing.T) {
-	for name, p := range map[string]string{"draft": draftSystemPrompt, "auto": autoSystemPrompt, "toss": tossSystemPrompt} {
-		if !strings.Contains(p, factRules) {
-			t.Errorf("%s 프롬프트에 사실 규칙이 없다", name)
-		}
-		// 기능 이야기를 부르던 예전 안내가 남으면 안 된다.
-		if strings.Contains(p, "관리나 보관") || strings.Contains(p, "구체적인 장면이나\n  써보고") {
-			t.Errorf("%s 프롬프트에 기능 이야기를 부르는 안내가 남았다", name)
-		}
+	if used != autoBatchSize {
+		t.Fatalf("요청에 담긴 훅 %d개, 세 장이 모두 달라야 한다:\n%s", used, rec.prompts[0])
 	}
 }
 

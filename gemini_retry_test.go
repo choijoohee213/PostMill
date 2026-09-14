@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -140,5 +141,69 @@ func TestRetry_잘린_응답은_버린다(t *testing.T) {
 
 	if _, _, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400, hookTypes[0]); err == nil {
 		t.Fatal("STOP이 아니면 에러여야 한다")
+	}
+}
+
+func quotaBody(quotaID, retryDelay string) string {
+	return fmt.Sprintf(`{"error":{"code":429,"message":"quota","status":"RESOURCE_EXHAUSTED","details":[
+		{"@type":"type.googleapis.com/google.rpc.QuotaFailure","violations":[{"quotaId":%q}]},
+		{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":%q}]}}`, quotaID, retryDelay)
+}
+
+// 하루 한도는 기다려도 오늘은 풀리지 않는다. 다시 보내면 실패만 쌓인다.
+func TestRetry_하루_한도는_다시_시도하지_않는다(t *testing.T) {
+	shortBackoff(t)
+	g, calls := fakeGemini(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		fmt.Fprint(w, quotaBody("GenerateRequestsPerDayPerProjectPerModel-FreeTier", "36s"))
+	})
+	_, _, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400, hookTypes[0])
+	if !errors.Is(err, errDailyQuota) {
+		t.Fatalf("err=%v", err)
+	}
+	if *calls != 1 {
+		t.Fatalf("호출 %d회, 한 번이어야 한다", *calls)
+	}
+	if msg := draftFailMessage(err); !strings.Contains(msg, "AI 사용량") {
+		t.Fatalf("안내 문구=%q", msg)
+	}
+}
+
+// 분당 한도는 알려준 시간만큼 기다리면 풀린다.
+func TestRetry_분당_한도는_알려준_시간만큼_기다린다(t *testing.T) {
+	shortBackoff(t)
+	n := 0
+	var gaps []time.Duration
+	last := time.Now()
+	g, _ := fakeGemini(t, func(w http.ResponseWriter, r *http.Request) {
+		gaps = append(gaps, time.Since(last))
+		last = time.Now()
+		n++
+		if n == 1 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			fmt.Fprint(w, quotaBody("GenerateRequestsPerMinutePerProjectPerModel-FreeTier", "0.2s"))
+			return
+		}
+		fmt.Fprint(w, okBody("본문\n---\n디테일"))
+	})
+	if _, _, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400, hookTypes[0]); err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 || gaps[1] < 200*time.Millisecond {
+		t.Fatalf("호출 %d회, 두 번째까지 %v 기다렸다. 0.2초 이상이어야 한다", n, gaps[1])
+	}
+}
+
+func TestRetry_너무_오래_기다리라면_포기한다(t *testing.T) {
+	shortBackoff(t)
+	g, calls := fakeGemini(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		fmt.Fprint(w, quotaBody("GenerateRequestsPerMinutePerProjectPerModel-FreeTier", "3600s"))
+	})
+	if _, _, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400, hookTypes[0]); err == nil {
+		t.Fatal("성공했다")
+	}
+	if *calls != 1 {
+		t.Fatalf("호출 %d회, 한 번이어야 한다", *calls)
 	}
 }
