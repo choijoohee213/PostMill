@@ -390,6 +390,11 @@ main {
 
 .notice a { color: inherit; }
 
+/* Threads 임베드. embed.js가 blockquote의 class를 바꾸므로 감싼 div로 잡는다.
+   뜨기 전에는 링크만 보이므로 기본 인용 여백을 없앤다. */
+.threads-embed { margin: 0 0 18px; }
+.threads-embed blockquote { margin: 0; padding: 0; }
+
 /* 상단 네비 */
 .topbar-inner {
   display: flex;
