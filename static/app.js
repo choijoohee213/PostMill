@@ -1,7 +1,13 @@
 // 상단 메뉴: 지금 보는 페이지를 표시한다.
-document.querySelectorAll('.topnav a').forEach(function (a) {
-  if (location.pathname.indexOf(a.getAttribute('href')) === 0) a.setAttribute('aria-current', 'page');
-});
+// 홈은 모든 경로의 앞부분이라 따로 본다. 초안 만들기·편집도 홈에서 들어가는 화면이다.
+(function () {
+  var path = location.pathname;
+  var home = path === '/' || path.indexOf('/new') === 0 || path.indexOf('/drafts/') === 0;
+  document.querySelectorAll('.topnav a').forEach(function (a) {
+    var href = a.getAttribute('href');
+    if (href === '/' ? home : path.indexOf(href) === 0) a.setAttribute('aria-current', 'page');
+  });
+})();
 
 // 생성 중인 카드가 있을 때만 폴링한다. 없으면 아무것도 하지 않는다.
 if (document.getElementById('poll')) {
