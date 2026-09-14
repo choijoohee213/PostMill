@@ -98,3 +98,16 @@ func TestHandleAuto_세_장이_서로_다른_훅으로_시작한다(t *testing.T
 		t.Fatalf("요청 %d개, 쓴 훅 %v. 세 장이 모두 달라야 한다", len(rec.prompts), used)
 	}
 }
+
+// 메모 없이 만들면 모델이 없는 기능을 지어냈다. 세 프롬프트 모두 같은 사실 규칙을 따라야 한다.
+func TestFactRules_모든_프롬프트가_사실_규칙을_담는다(t *testing.T) {
+	for name, p := range map[string]string{"draft": draftSystemPrompt, "auto": autoSystemPrompt, "toss": tossSystemPrompt} {
+		if !strings.Contains(p, factRules) {
+			t.Errorf("%s 프롬프트에 사실 규칙이 없다", name)
+		}
+		// 기능 이야기를 부르던 예전 안내가 남으면 안 된다.
+		if strings.Contains(p, "관리나 보관") || strings.Contains(p, "구체적인 장면이나\n  써보고") {
+			t.Errorf("%s 프롬프트에 기능 이야기를 부르는 안내가 남았다", name)
+		}
+	}
+}
