@@ -409,13 +409,43 @@ main {
 .topnav {
   margin-left: auto;
   display: flex;
-  gap: 14px;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
 }
 
 .topnav a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 11px 5px 9px;
+  border-radius: 999px;
   color: var(--muted);
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 500;
   text-decoration: none;
+  transition: background .15s, color .15s;
+}
+
+.topnav a:hover { color: var(--text); }
+
+.topnav a[aria-current="page"] {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.topnav svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 /* 설정 화면 */
@@ -1087,6 +1117,15 @@ main {
   color: var(--muted);
   font-size: 13px;
 }
+
+.stat-wide {
+  grid-column: 1 / -1;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.stat-wide .stat-sub { margin-left: auto; }
 
 .stat strong {
   font-size: 18px;

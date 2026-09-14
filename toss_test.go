@@ -609,3 +609,30 @@ func TestTossOwner_처음_토스_글을_쓴_계정을_기억한다(t *testing.T)
 		t.Fatalf("글을 지우자 주인이 %q에서 %q로 바뀌었다", owner, again)
 	}
 }
+
+func TestCountPublishedToss_이_달과_누적을_센다(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	const user = "count-toss"
+
+	publish := func(affiliate string, publishedAt time.Time) {
+		id, _ := db.CreateDraft(ctx, user, affiliate, "", "https://link/x", "메모")
+		t.Cleanup(func() { db.DeletePost(ctx, user, id) })
+		db.ClaimForPublish(ctx, user, id)
+		db.MarkPublished(ctx, id, "")
+		db.pool.Exec(ctx, `UPDATE posts SET published_at = $2 WHERE id = $1`, id, publishedAt)
+	}
+	sep := time.Date(2026, 9, 1, 0, 0, 0, 0, kst)
+	publish(AffiliateToss, sep.Add(time.Hour))
+	publish(AffiliateToss, sep.AddDate(0, 0, 29))
+	publish(AffiliateToss, sep.Add(-time.Hour)) // 8월 마지막 날
+	publish(AffiliateCoupang, sep.Add(time.Hour))
+
+	draft, _ := db.CreateDraft(ctx, user, AffiliateToss, "", "", "메모") // 게시 안 한 글
+	t.Cleanup(func() { db.DeletePost(ctx, user, draft) })
+
+	inRange, total, err := db.CountPublishedToss(ctx, user, sep, sep.AddDate(0, 1, 0))
+	if err != nil || inRange != 2 || total != 3 {
+		t.Fatalf("이 달=%d 누적=%d err=%v, 2와 3이어야 한다", inRange, total, err)
+	}
+}

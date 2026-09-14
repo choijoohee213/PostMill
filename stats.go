@@ -28,6 +28,9 @@ type statsData struct {
 	Settled     int64
 	Rows        []statsRow
 	LastUpdated string // 토스가 마지막으로 집계한 시각
+
+	Posted      int // 이 달에 게시한 토스 글 수
+	PostedTotal int // 지금까지 게시한 토스 글 수
 }
 
 // statsRow는 상품 하나의 실적이다. 직접·간접 기여 행을 상품 단위로 합친다.
@@ -69,6 +72,13 @@ func (a *app) handleStats(w http.ResponseWriter, r *http.Request) {
 	data.Range = from.Format("1월 2일") + " ~ " + to.Format("1월 2일")
 
 	userID := a.session.userID(r)
+	// 게시 수는 PostMill 기록이라 토스가 응답하지 않아도 보여준다.
+	var err error
+	data.Posted, data.PostedTotal, err = a.db.CountPublishedToss(r.Context(), userID, from, month.AddDate(0, 1, 0))
+	if err != nil {
+		log.Printf("게시 수 조회 실패: %v", err)
+	}
+
 	token, err := a.lockedTossToken(r.Context())
 	if err == nil {
 		data.Perf, data.Settled, err = a.accountStats(r.Context(), token, userID, from, to, data.Month)

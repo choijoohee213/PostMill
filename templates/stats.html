@@ -12,6 +12,10 @@
   {{if .NextMonth}}<a class="btn btn-small" href="/stats?month={{.NextMonth}}" aria-label="다음 달">→</a>{{else}}<span class="btn btn-small is-disabled" aria-hidden="true">→</span>{{end}}
 </div>
 
+<div class="stats-grid">
+  <div class="stat stat-wide"><span class="stat-label">게시한 상품</span><strong>{{.Posted}}개</strong><span class="stat-sub">누적 {{.PostedTotal}}개</span></div>
+</div>
+
 {{if .Error}}
 <p class="error">{{.Error}}</p>
 {{else}}
