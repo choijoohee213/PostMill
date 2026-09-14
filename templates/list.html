@@ -46,18 +46,24 @@
       {{if .Categories}}<label><input type="radio" name="source" value="cat"><span>카테고리</span></label>{{end}}
     </div>
     {{if .Categories}}
-    <select name="category" data-when="cat" aria-label="카테고리">
-      {{range .Categories}}
-      <optgroup label="{{.Name}}">
-        {{range .Options}}<option value="{{.Value}}">{{.Name}}</option>{{end}}
-      </optgroup>
-      {{end}}
-    </select>
+    <!-- 대분류부터 한 단계씩 좁혀 고른다. 칸은 app.js가 트리로 그린다. -->
+    <div class="cat-picker" id="cat-picker" data-when="cat"></div>
+    <script type="application/json" id="toss-categories">{{.Categories}}</script>
+    <noscript>
+      <select name="category" aria-label="카테고리">
+        {{range .Categories}}
+        <optgroup label="{{.Name}}">
+          <option value="cat:{{.ID}}">{{.Name}} 전체</option>
+          {{range .Children}}<option value="cat:{{.ID}}">{{.Name}}</option>{{end}}
+        </optgroup>
+        {{end}}
+      </select>
+    </noscript>
     {{end}}
     <p class="hint" data-when="best">지금 토스쇼핑에서 많이 팔리는 상품이에요.</p>
     <p class="hint" data-when="deal">오늘만 하는 특가예요. 3시간 안에 끝나는 건 빼요.</p>
     <p class="hint" data-when="mine">최근 30일 동안 내 링크로 팔린 상품의 카테고리에서 골라요. 판매가 없으면 베스트에서 골라요.</p>
-    <p class="hint" data-when="cat">고른 카테고리에서 잘 팔리는 상품이에요.</p>
+    <p class="hint" data-when="cat">고른 카테고리에서 잘 팔리는 상품이에요. 랭킹이 없는 카테고리면 한 단계 위에서 골라요.</p>
   </fieldset>
   {{end}}
 

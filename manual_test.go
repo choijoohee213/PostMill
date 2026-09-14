@@ -74,20 +74,47 @@ func TestTossProducts_고른_곳에서_상품을_가져온다(t *testing.T) {
 	}
 }
 
-func TestTossCategoryGroups(t *testing.T) {
+func TestTossCategoryTree_모든_단계를_넘긴다(t *testing.T) {
 	db := openTestDB(t)
 	f := &fakeTossServer{categories: []TossCategory{
-		{CategoryID: 1, DisplayName: "생활", Children: []TossCategory{{CategoryID: 10, DisplayName: "주방"}, {CategoryID: 20, DisplayName: "청소"}}},
+		{CategoryID: 1, DisplayName: "생활", Children: []TossCategory{
+			{CategoryID: 10, DisplayName: "주방", Children: []TossCategory{{CategoryID: 100, DisplayName: "밀폐용기"}}},
+		}},
 		{CategoryID: 2, DisplayName: "도서"},
 	}}
 	a := &app{db: db, toss: f.client(t)}
-	groups := a.tossCategoryGroups(context.Background())
-	if len(groups) != 2 || len(groups[0].Options) != 2 || groups[0].Options[1].Value != "cat:20" ||
-		groups[1].Options[0].Value != "cat:2" {
-		t.Fatalf("groups=%+v", groups)
+	tree := a.tossCategoryTree(context.Background())
+	if len(tree) != 2 || tree[0].Children[0].Children[0].ID != 100 || tree[0].Children[0].Children[0].Name != "밀폐용기" {
+		t.Fatalf("tree=%+v", tree)
 	}
-	if (&app{}).tossCategoryGroups(context.Background()) != nil {
+	if (&app{}).tossCategoryTree(context.Background()) != nil {
 		t.Error("토스 API가 없으면 비어야 한다")
+	}
+}
+
+// 랭킹이 없는 카테고리를 고르면 상품이 0개가 된다. 한 단계씩 올라가 찾는다.
+func TestTossProducts_랭킹이_빈_카테고리는_상위에서_고른다(t *testing.T) {
+	db := openTestDB(t)
+	f := &fakeTossServer{
+		best: []TossProduct{{TacaItemID: 1, DisplayName: "베스트"}},
+		categories: []TossCategory{
+			{CategoryID: 1, DisplayName: "생활", Children: []TossCategory{
+				{CategoryID: 10, DisplayName: "주방", Children: []TossCategory{{CategoryID: 100, DisplayName: "밀폐용기"}}},
+			}},
+			{CategoryID: 2, DisplayName: "도서", Children: []TossCategory{{CategoryID: 20, DisplayName: "만화"}}},
+		},
+		catBest: map[string][]TossProduct{"10": {{TacaItemID: 10, DisplayName: "주방 베스트"}}},
+	}
+	a := &app{db: db, toss: f.client(t)}
+	ctx := context.Background()
+
+	_, items, err := a.tossProducts(ctx, "u", "cat:100")
+	if err != nil || len(items) != 1 || items[0].DisplayName != "주방 베스트" {
+		t.Fatalf("소분류가 비면 중분류에서: items=%+v err=%v", items, err)
+	}
+	_, items, err = a.tossProducts(ctx, "u", "cat:20")
+	if err != nil || len(items) != 1 || items[0].DisplayName != "베스트" {
+		t.Fatalf("끝까지 비면 베스트에서: items=%+v err=%v", items, err)
 	}
 }
 

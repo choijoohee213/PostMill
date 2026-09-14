@@ -55,11 +55,12 @@ const (
 // 자동 생성은 세 장을 동시에 만들어서, 막지 않으면 세 번씩 받는다.
 // 서버가 잠들면 메모리에서 사라지지만, 그때는 다시 받으면 된다.
 type tossState struct {
-	mu           sync.Mutex
-	lists        map[string]cachedProducts // 목록 종류별로 받아 둔 상품
-	categories   []TossCategory
-	categoriesAt time.Time
-	subTags      map[string]bool // 이번에 떠 있는 동안 등록을 확인한 subTag
+	mu              sync.Mutex
+	lists           map[string]cachedProducts // 목록 종류별로 받아 둔 상품
+	categories      []TossCategory
+	categoryParents map[int64]int64 // 카테고리 → 상위 카테고리
+	categoriesAt    time.Time
+	subTags         map[string]bool // 이번에 떠 있는 동안 등록을 확인한 subTag
 }
 
 type cachedProducts struct {
@@ -157,7 +158,7 @@ func (a *app) tossProducts(ctx context.Context, userID, source string) (string, 
 		if perr != nil {
 			items, err = a.bestList(ctx, token)
 		} else {
-			items, err = a.categoryList(ctx, token, id)
+			items, err = a.categoryListOrParent(ctx, token, id)
 		}
 	default:
 		items, err = a.bestList(ctx, token)
@@ -251,53 +252,87 @@ func (a *app) mineProducts(ctx context.Context, token, userID string) ([]TossPro
 	return mixed, nil
 }
 
-// categoryGroup은 화면의 카테고리 선택지다. 대분류 아래 중분류를 둔다.
-type categoryGroup struct {
-	Name    string
-	Options []categoryOption
+// categoryNode는 화면에 넘기는 카테고리 트리다. 단계별 선택 칸이 이걸로 그려진다.
+type categoryNode struct {
+	ID       int64          `json:"id"`
+	Name     string         `json:"name"`
+	Children []categoryNode `json:"children,omitempty"`
 }
 
-type categoryOption struct {
-	Value string // tossSourceCat + ID
-	Name  string
+// loadCategories는 카테고리 트리를 하루에 한 번 받아 둔다. 부모 관계도 함께 기억해
+// 랭킹이 비어 있는 카테고리에서 한 단계씩 올라갈 수 있게 한다.
+// tossState.mu를 잡은 채로 부른다.
+func (a *app) loadCategories(ctx context.Context, token string) error {
+	s := &a.tossState
+	if s.categories != nil && time.Since(s.categoriesAt) < tossCategoryTTL {
+		return nil
+	}
+	cats, err := a.toss.Categories(ctx, token)
+	if err != nil {
+		a.forgetTossToken(ctx, err)
+		return err
+	}
+	parents := map[int64]int64{}
+	var walk func(parent int64, list []TossCategory)
+	walk = func(parent int64, list []TossCategory) {
+		for _, c := range list {
+			if parent != 0 {
+				parents[c.CategoryID] = parent
+			}
+			walk(c.CategoryID, c.Children)
+		}
+	}
+	walk(0, cats)
+	s.categories, s.categoryParents, s.categoriesAt = cats, parents, time.Now()
+	return nil
 }
 
-// tossCategoryGroups는 카테고리 선택지를 만든다. 토스가 응답하지 않으면 비운다.
-func (a *app) tossCategoryGroups(ctx context.Context) []categoryGroup {
+// tossCategoryTree는 화면에 넘길 카테고리 트리다. 토스가 응답하지 않으면 비운다.
+func (a *app) tossCategoryTree(ctx context.Context) []categoryNode {
 	if a.toss == nil {
 		return nil
 	}
 	a.tossState.mu.Lock()
 	defer a.tossState.mu.Unlock()
 
-	s := &a.tossState
-	if s.categories == nil || time.Since(s.categoriesAt) > tossCategoryTTL {
-		token, err := a.tossToken(ctx)
-		if err != nil {
-			log.Printf("토스 카테고리 조회 생략: %v", err)
-			return nil
-		}
-		cats, err := a.toss.Categories(ctx, token)
-		if err != nil {
-			a.forgetTossToken(ctx, err)
-			log.Printf("토스 카테고리 조회 실패: %v", err)
-			return nil
-		}
-		s.categories, s.categoriesAt = cats, time.Now()
+	token, err := a.tossToken(ctx)
+	if err == nil {
+		err = a.loadCategories(ctx, token)
 	}
+	if err != nil {
+		log.Printf("토스 카테고리 조회 실패: %v", err)
+		return nil
+	}
+	var convert func([]TossCategory) []categoryNode
+	convert = func(list []TossCategory) []categoryNode {
+		out := make([]categoryNode, 0, len(list))
+		for _, c := range list {
+			out = append(out, categoryNode{ID: c.CategoryID, Name: c.DisplayName, Children: convert(c.Children)})
+		}
+		return out
+	}
+	return convert(a.tossState.categories)
+}
 
-	var groups []categoryGroup
-	for _, top := range s.categories {
-		g := categoryGroup{Name: top.DisplayName}
-		for _, c := range top.Children {
-			g.Options = append(g.Options, categoryOption{tossSourceCat + strconv.FormatInt(c.CategoryID, 10), c.DisplayName})
-		}
-		if len(g.Options) == 0 {
-			g.Options = []categoryOption{{tossSourceCat + strconv.FormatInt(top.CategoryID, 10), top.DisplayName}}
-		}
-		groups = append(groups, g)
+// categoryListOrParent는 카테고리 베스트를 받고, 랭킹이 비어 있으면 한 단계씩 위로
+// 올라가 받는다. 토스 문서에 랭킹 데이터가 없는 카테고리도 있다고 되어 있다.
+// 끝까지 비면 베스트를 쓴다. tossState.mu를 잡은 채로 부른다.
+func (a *app) categoryListOrParent(ctx context.Context, token string, id int64) ([]TossProduct, error) {
+	if err := a.loadCategories(ctx, token); err != nil {
+		// 트리를 못 받으면 올라갈 수 없을 뿐, 고른 카테고리는 그대로 조회한다.
+		log.Printf("토스 카테고리 조회 실패: %v", err)
 	}
-	return groups
+	for seen := 0; id != 0 && seen < 6; seen++ {
+		items, err := a.categoryList(ctx, token, id)
+		if err != nil {
+			return nil, err
+		}
+		if len(items) > 0 {
+			return items, nil
+		}
+		id = a.tossState.categoryParents[id]
+	}
+	return a.bestList(ctx, token)
 }
 
 // tossCandidates는 고를 만한 상품을 추린다.

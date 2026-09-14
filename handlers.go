@@ -117,9 +117,9 @@ type listData struct {
 	// 만들기 칸
 	Error      string
 	Form       manualForm
-	TossAPI    bool            // 토스 API가 연결돼 있는지
-	Areas      []coupangArea   // 쿠팡 AI 초안 분야
-	Categories []categoryGroup // 토스 카테고리 선택지
+	TossAPI    bool           // 토스 API가 연결돼 있는지
+	Areas      []coupangArea  // 쿠팡 AI 초안 분야
+	Categories []categoryNode // 토스 카테고리 트리
 }
 
 func (a *app) handleList(w http.ResponseWriter, r *http.Request) {
@@ -501,9 +501,9 @@ func (a *app) handlePublish(w http.ResponseWriter, r *http.Request) {
 }
 
 // categoriesFor는 만들기 칸이 보이는 검수대기 탭에서만 토스 카테고리를 준비한다.
-func (a *app) categoriesFor(r *http.Request, tab string) []categoryGroup {
+func (a *app) categoriesFor(r *http.Request, tab string) []categoryNode {
 	if tab != "review" {
 		return nil
 	}
-	return a.tossCategoryGroups(r.Context())
+	return a.tossCategoryTree(r.Context())
 }
