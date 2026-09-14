@@ -207,3 +207,77 @@ func TestRetry_너무_오래_기다리라면_포기한다(t *testing.T) {
 		t.Fatalf("호출 %d회, 한 번이어야 한다", *calls)
 	}
 }
+
+// keyedGemini는 키별로 다른 응답을 주는 가짜 서버다.
+func keyedGemini(t *testing.T, keys string, handler func(key string, w http.ResponseWriter)) (*Gemini, *[]string) {
+	t.Helper()
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		key := r.Header.Get("x-goog-api-key")
+		seen = append(seen, key)
+		handler(key, w)
+	}))
+	t.Cleanup(srv.Close)
+	g := NewGemini(keys)
+	g.HTTP = srv.Client()
+	g.BaseURL = srv.URL + "/"
+	return g, &seen
+}
+
+func TestNewGemini_쉼표로_여러_키를_받는다(t *testing.T) {
+	g := NewGemini(" k1, k2 ,,k3 ")
+	if strings.Join(g.APIKeys, "|") != "k1|k2|k3" {
+		t.Fatalf("keys=%q", g.APIKeys)
+	}
+}
+
+func TestMultiKey_한도에_걸린_키는_건너뛰고_다음_요청도_그_키부터(t *testing.T) {
+	shortBackoff(t)
+	g, seen := keyedGemini(t, "k1,k2", func(key string, w http.ResponseWriter) {
+		if key == "k1" {
+			w.WriteHeader(http.StatusTooManyRequests)
+			fmt.Fprint(w, quotaBody("GenerateRequestsPerDayPerProjectPerModel-FreeTier", "36s"))
+			return
+		}
+		fmt.Fprint(w, okBody("본문\n---\n디테일"))
+	})
+	ctx := context.Background()
+	if _, _, err := g.GenerateDraft(ctx, AffiliateCoupang, "메모", 400, hookTypes[0]); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := g.GenerateDraft(ctx, AffiliateCoupang, "메모", 400, hookTypes[0]); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(*seen, ",") != "k1,k2,k2" {
+		t.Fatalf("보낸 키 순서=%v, k1 실패 뒤 k2로 넘어가고 다음엔 k2부터여야 한다", *seen)
+	}
+}
+
+func TestMultiKey_모든_키가_하루_한도면_안내한다(t *testing.T) {
+	shortBackoff(t)
+	g, seen := keyedGemini(t, "k1,k2", func(key string, w http.ResponseWriter) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		fmt.Fprint(w, quotaBody("GenerateRequestsPerDayPerProjectPerModel-FreeTier", "36s"))
+	})
+	_, _, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400, hookTypes[0])
+	if !errors.Is(err, errDailyQuota) {
+		t.Fatalf("err=%v", err)
+	}
+	if len(*seen) != 2 {
+		t.Fatalf("호출 %v, 키마다 한 번이어야 한다", *seen)
+	}
+}
+
+func TestMultiKey_한도가_아닌_실패는_다른_키로_넘기지_않는다(t *testing.T) {
+	shortBackoff(t)
+	g, seen := keyedGemini(t, "k1,k2", func(key string, w http.ResponseWriter) {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, `{"error":{"message":"bad"}}`)
+	})
+	if _, _, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400, hookTypes[0]); err == nil {
+		t.Fatal("성공했다")
+	}
+	if strings.Join(*seen, ",") != "k1" {
+		t.Fatalf("호출 %v, 요청 자체의 문제는 다른 키로 보내도 같다", *seen)
+	}
+}

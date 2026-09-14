@@ -57,6 +57,7 @@ func main() {
 		log.Fatalf("템플릿 파싱 실패: %v", err)
 	}
 
+	// 쉼표로 여러 개를 넣으면 한도에 걸릴 때 다음 키로 넘어간다.
 	apiKey := os.Getenv("GEMINI_API_KEY")
 	if apiKey == "" {
 		log.Fatal("GEMINI_API_KEY가 설정되지 않았습니다")

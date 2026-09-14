@@ -19,6 +19,7 @@ services:
       # sync: false 는 blueprint에 값을 적지 않겠다는 뜻이다.
       - key: DATABASE_URL
         sync: false
+      # 쉼표로 여러 개를 넣을 수 있다. 한도는 프로젝트 단위라 키마다 프로젝트가 달라야 한다.
       - key: GEMINI_API_KEY
         sync: false
       - key: ADMIN_PASSWORD
