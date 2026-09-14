@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -301,7 +302,17 @@ const autoSystemPrompt = `너는 스레드(Threads)에 제휴 마케팅 글을 �
 출력 형식은 네 부분이고 사이에 --- 만 있는 줄을 넣는다.
 
 [1] 상품 이름 한 줄. 검색어로 쓸 수 있게 짧게.
----
+` + autoReplyParts + `
+` + autoVoiceRules + `
+지어내지 말 것:
+- 가격, 할인율, 브랜드명, 모델명, 성능 수치, 용량, 배터리 시간을 쓰지 마라.
+  상품을 네가 골랐으므로 확인된 수치가 없다. 느낌과 상황으로만 쓴다.
+
+다른 말 없이 네 부분만 출력한다.`
+
+// autoReplyParts는 자동 초안의 본문과 답글 두 개 형식이다. 상품을 고르는 방식만
+// 다르고 글 형식은 같으므로 쿠팡·토스 프롬프트가 함께 쓴다.
+const autoReplyParts = `---
 [2] 본문. 아주 짧게, 3~4줄, 80자 안팎.
     구성: 겪던 불편 한 줄 → 이걸로 뭐가 달라졌는지 한 줄 → 질문 한 줄.
     장점은 딱 하나만 담는다.
@@ -313,8 +324,10 @@ const autoSystemPrompt = `너는 스레드(Threads)에 제휴 마케팅 글을 �
     3번에 이어지는 다른 이야기를 쓴다. 3번과 다른 각도여야 한다.
     예를 들어 3번이 쓰는 느낌이면 4번은 관리나 보관 같은 다른 면을 쓴다.
     혼잣말을 덧붙이듯 자연스럽게 이어라.
+`
 
-말투 (2, 3, 4 모두):
+// autoVoiceRules는 자동 초안의 말투 규칙이다.
+const autoVoiceRules = `말투 (2, 3, 4 모두):
 - 반말. 친구한테 카톡하듯. 직접 써본 1인칭으로 쓴다.
 - 한 줄은 짧게 끊고 줄바꿈을 자주 넣는다.
 - "그리고", "또", "게다가", "무엇보다" 로 항목을 이어붙이지 마라.
@@ -323,20 +336,37 @@ const autoSystemPrompt = `너는 스레드(Threads)에 제휴 마케팅 글을 �
 - 광고 문구처럼 들리는 문장, 이모지, 해시태그, 링크를 쓰지 않는다.
 - 대가성 문구를 쓰지 않는다. 시스템이 따로 붙인다.
 - "최저가", "무조건", "인생템", "역대급" 같은 과장 표현 금지.
+`
 
+const tossSystemPrompt = `너는 스레드(Threads)에 제휴 마케팅 글을 올리는 평범한 사람이다.
+토스쇼핑에서 지금 잘 팔리거나 특가인 상품 목록을 받아, 그중 하나를 골라 글을 쓴다.
+
+먼저 상품을 고른다:
+- 사람들이 "아 이거 나도 불편했는데" 할 만한, 생활 속 사소한 불편을 해결하는 물건이 좋다.
+- 리뷰가 많고 평점이 높은 것을 우선한다.
+- 만원에서 오만원 사이의 물건이 좋다. 너무 비싼 물건은 피한다.
+- 옷이나 신발처럼 사이즈를 골라야 하는 것, 신선식품은 피한다.
+
+출력 형식은 네 부분이고 사이에 --- 만 있는 줄을 넣는다.
+
+[1] 고른 상품의 번호만. 숫자 하나.
+` + autoReplyParts + `
+` + autoVoiceRules + `
 지어내지 말 것:
-- 가격, 할인율, 브랜드명, 모델명, 성능 수치, 용량, 배터리 시간을 쓰지 마라.
-  상품을 네가 골랐으므로 확인된 수치가 없다. 느낌과 상황으로만 쓴다.
+- 가격, 할인율, 성능 수치, 용량을 쓰지 마라. 가격과 할인은 금방 바뀐다.
+- 상품명을 그대로 옮기지 말고 "이 무선 청소기"처럼 종류로 말한다.
+- 목록에 있는 정보 말고 기능을 지어내지 마라. 느낌과 상황으로 쓴다.
 
 다른 말 없이 네 부분만 출력한다.`
 
 // AutoDraft는 AI가 상품까지 고른 초안이다.
 type AutoDraft struct {
-	ProductName string
-	ProductURL  string
-	Body        string
-	Detail      string
-	Detail2     string
+	ProductName   string
+	ProductURL    string
+	AffiliateLink string // 토스 API로 발급한 쉐어링크. 쿠팡은 비어 있다
+	Body          string
+	Detail        string
+	Detail2       string
 }
 
 // SuggestDraft는 상품 선정부터 본문까지 한 번에 만든다.
@@ -407,6 +437,87 @@ func (g *Gemini) suggestOnce(ctx context.Context, affiliate string, avoid []stri
 	}
 	d.ProductURL = SearchURL(affiliate, d.ProductName)
 	return d, nil
+}
+
+// SuggestFromToss는 토스 상품 목록에서 하나를 골라 글을 쓴다.
+// 고른 상품의 목록 내 위치를 함께 돌려준다.
+func (g *Gemini) SuggestFromToss(ctx context.Context, products []TossProduct) (int, *AutoDraft, error) {
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if attempt > 0 {
+			wait := retryBackoff[attempt-1]
+			log.Printf("토스 초안 재시도 %d/%d (%v 후): %v", attempt+1, maxAttempts, wait, lastErr)
+			select {
+			case <-time.After(wait):
+			case <-ctx.Done():
+				return 0, nil, ctx.Err()
+			}
+		}
+
+		i, d, err := g.suggestTossOnce(ctx, products)
+		if err == nil {
+			return i, d, nil
+		}
+		lastErr = err
+
+		var retryable retryableError
+		if !errors.As(err, &retryable) {
+			return 0, nil, err
+		}
+	}
+	return 0, nil, fmt.Errorf("%d번 시도했지만 실패했다: %w", maxAttempts, lastErr)
+}
+
+func (g *Gemini) suggestTossOnce(ctx context.Context, products []TossProduct) (int, *AutoDraft, error) {
+	var b strings.Builder
+	b.WriteString("아래 상품 중 하나를 골라 글을 써라.\n\n")
+	for i, p := range products {
+		fmt.Fprintf(&b, "%d. %s | %d원", i+1, p.DisplayName, p.DisplayPrice)
+		if p.DiscountRate > 0 {
+			fmt.Fprintf(&b, " (%.0f%% 할인)", p.DiscountRate)
+		}
+		if p.ReviewCount > 0 {
+			fmt.Fprintf(&b, " | 리뷰 %.1f점 %d개", p.ReviewScore, p.ReviewCount)
+		}
+		if p.EndAt != "" {
+			b.WriteString(" | 하루특가")
+		}
+		b.WriteString("\n")
+	}
+
+	raw, err := g.call(ctx, tossSystemPrompt, b.String())
+	if err != nil {
+		return 0, nil, err
+	}
+
+	parts := splitParts(raw, 4)
+	if len(parts) < 4 {
+		return 0, nil, retryableError{fmt.Errorf("출력이 네 부분으로 나뉘지 않았다")}
+	}
+	n, err := strconv.Atoi(strings.Trim(firstLine(parts[0]), " .[]번"))
+	if err != nil || n < 1 || n > len(products) {
+		return 0, nil, retryableError{fmt.Errorf("상품 번호를 알아볼 수 없다: %q", firstLine(parts[0]))}
+	}
+
+	d := &AutoDraft{
+		ProductName: products[n-1].DisplayName,
+		Body:        parts[1],
+		Detail:      parts[2],
+		Detail2:     parts[3],
+	}
+	if d.Body == "" {
+		return 0, nil, retryableError{fmt.Errorf("본문이 비었다")}
+	}
+	if n := CharCount(d.Body); n > bodyMaxChars {
+		return 0, nil, retryableError{fmt.Errorf("본문이 %d자로 상한 %d자를 넘는다", n, bodyMaxChars)}
+	}
+	for i, t := range []string{d.Detail, d.Detail2} {
+		if n := CharCount(t); n > detailMaxChars {
+			return 0, nil, retryableError{
+				fmt.Errorf("답글 %d이 %d자로 상한 %d자를 넘는다", i+1, n, detailMaxChars)}
+		}
+	}
+	return n - 1, d, nil
 }
 
 // SearchURL은 상품을 찾아볼 검색 주소를 만든다.

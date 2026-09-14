@@ -21,6 +21,11 @@ type app struct {
 	gemini  *Gemini
 	threads *Threads
 
+	// toss는 토스 쉐어링크 Open API다. 키가 없으면 nil이고, 토스 자동 초안은
+	// 쿠팡처럼 AI가 상품 종류만 제안한다.
+	toss      *Toss
+	tossState tossState
+
 	session       *session
 	appID         string
 	appSecret     string
@@ -70,6 +75,13 @@ func main() {
 		appSecret:     os.Getenv("THREADS_APP_SECRET"),
 		adminPassword: os.Getenv("ADMIN_PASSWORD"),
 		publicURL:     os.Getenv("RENDER_EXTERNAL_URL"),
+	}
+
+	if key, secret, publisher := os.Getenv("TOSS_ACCESS_KEY"), os.Getenv("TOSS_SECRET_KEY"),
+		os.Getenv("TOSS_PUBLISHER_ID"); key != "" && secret != "" && publisher != "" {
+		a.toss = NewToss(key, secret, publisher)
+	} else {
+		log.Print("토스 API 키가 없어 토스 자동 초안은 상품 종류만 제안합니다")
 	}
 
 	mux := http.NewServeMux()

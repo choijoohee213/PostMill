@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html/template"
 	"log"
+	"math/rand/v2"
 	"net/http"
 	"strconv"
 	"strings"
@@ -285,7 +286,13 @@ func (a *app) handleRetry(w http.ResponseWriter, r *http.Request) {
 	if err := a.db.SetGenerateError(r.Context(), id, ""); err != nil {
 		log.Printf("재시도 준비 실패: %v", err)
 	}
-	go a.generate(id, p.Affiliate, p.Memo)
+	// 메모가 없으면 AI가 상품까지 고르는 자동 초안이다.
+	if p.Memo == "" {
+		go a.suggest(id, p.Affiliate, a.recentProducts(r.Context(), p.UserID),
+			categoryHints[rand.IntN(len(categoryHints))], -1)
+	} else {
+		go a.generate(id, p.Affiliate, p.Memo)
+	}
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }

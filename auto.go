@@ -52,7 +52,7 @@ func (a *app) handleAuto(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		hint := categoryHints[(start+i)%len(categoryHints)]
-		go a.suggest(id, affiliate, avoid, hint)
+		go a.suggest(id, affiliate, avoid, hint, i)
 	}
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -74,7 +74,7 @@ func (a *app) handleAutoOne(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	go a.suggest(id, affiliate, a.recentProducts(r.Context(), userID),
-		categoryHints[rand.IntN(len(categoryHints))])
+		categoryHints[rand.IntN(len(categoryHints))], -1)
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
@@ -95,7 +95,7 @@ func (a *app) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		log.Printf("재생성 사진 삭제 실패 (id=%d): %v", p.ID, err)
 	}
 	go a.suggest(p.ID, p.Affiliate, a.recentProducts(r.Context(), p.UserID),
-		categoryHints[rand.IntN(len(categoryHints))])
+		categoryHints[rand.IntN(len(categoryHints))], -1)
 
 	http.Redirect(w, r, backTo(r), http.StatusSeeOther)
 }
@@ -123,14 +123,23 @@ func (a *app) recentProducts(ctx context.Context, userID string) []string {
 }
 
 // suggest는 요청과 무관하게 도는 백그라운드 작업이다.
-func (a *app) suggest(id int64, affiliate string, avoid []string, hint string) {
+//
+// 토스는 API가 연결돼 있으면 실제 베스트·특가 상품에서 고르고 쉐어링크까지
+// 발급한다. slot은 동시에 만드는 초안끼리 후보를 나누는 번호다 (-1이면 전부).
+func (a *app) suggest(id int64, affiliate string, avoid []string, hint string, slot int) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 
-	d, err := a.gemini.SuggestDraft(ctx, affiliate, avoid, hint)
+	var d *AutoDraft
+	var err error
+	if affiliate == AffiliateToss && a.toss != nil {
+		d, err = a.suggestToss(ctx, avoid, slot)
+	} else {
+		d, err = a.gemini.SuggestDraft(ctx, affiliate, avoid, hint)
+	}
 	if err != nil {
 		log.Printf("자동 초안 실패 (id=%d): %v", id, err)
-		if dbErr := a.db.SetGenerateError(ctx, id, "초안을 만들지 못했습니다."); dbErr != nil {
+		if dbErr := a.db.SetGenerateError(ctx, id, draftFailMessage(err)); dbErr != nil {
 			log.Printf("실패 기록도 실패 (id=%d): %v", id, dbErr)
 		}
 		return
