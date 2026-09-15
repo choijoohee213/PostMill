@@ -273,6 +273,7 @@ if (document.getElementById('poll')) {
     names.forEach(function (n) {
       try { localStorage.setItem('create.' + n, value(n)); } catch (e) {}
     });
+    paintSummary();
   }
 
   // 토스 카테고리: 대분류 → 중분류 → 소분류를 차례로 고른다. 아래 단계는 "전체"가
@@ -328,6 +329,49 @@ if (document.getElementById('poll')) {
     try { saved = localStorage.getItem('create.category'); } catch (e) {}
     var savedID = saved && saved.indexOf('cat:') === 0 ? Number(saved.slice(4)) : NaN;
     drawPicker((!hasError && findPath(tree, savedID, [])) || []);
+  }
+
+  // 방식 카드를 누르면 시트가 올라온다. 자바스크립트가 없으면 시트 없이 아래에 펼쳐진다.
+  var sheet = document.getElementById('create-sheet');
+  if (sheet) {
+    sheet.classList.add('sheet--modal');
+    var openSheet = function () {
+      sheet.classList.add('is-open');
+      document.addEventListener('keydown', onEsc);
+      var first = sheet.querySelector('input:not([type="radio"]):not([hidden]), textarea');
+      if (first && !first.closest('[hidden]')) first.focus();
+    };
+    var closeSheet = function () {
+      sheet.classList.remove('is-open');
+      document.removeEventListener('keydown', onEsc);
+    };
+    var onEsc = function (e) { if (e.key === 'Escape') closeSheet(); };
+
+    form.querySelectorAll('.create-card input').forEach(function (r) {
+      r.addEventListener('change', openSheet);
+      // 이미 고른 카드를 다시 눌러도 열린다.
+      r.closest('.create-card').addEventListener('click', function () {
+        if (r.checked) openSheet();
+      });
+    });
+    sheet.querySelector('.sheet-close').addEventListener('click', closeSheet);
+    sheet.addEventListener('click', function (e) { if (e.target === sheet) closeSheet(); });
+    // 입력이 잘못돼 다시 그려졌으면 고치라고 열어 둔다.
+    if (hasError) openSheet();
+  }
+
+  // AI 카드에 지금 고른 곳을 적어 둔다.
+  var summary = document.getElementById('ai-summary');
+  function label(name) {
+    var el = form.querySelector('[name="' + name + '"]:checked');
+    var span = el && el.parentElement.querySelector('span');
+    return span ? span.textContent.trim() : '';
+  }
+  function paintSummary() {
+    if (!summary) return;
+    var aff = label('affiliate');
+    var where = value('affiliate') === 'toss' && form.querySelector('[name="source"]') ? label('source') : label('area');
+    summary.textContent = [aff, where].filter(Boolean).join(' · ');
   }
 
   form.addEventListener('change', sync);
