@@ -1,13 +1,14 @@
 :root {
-  /* 아이콘(앰버)에 맞춘 따뜻한 톤. 앰버 위에는 흰 글씨 대비가 모자라
-     진한 갈색(--on-accent)을 얹는다. */
-  --bg: #fdf9f3;
+  /* 배경과 글씨는 원래대로 두고, 버튼과 선택 표시에만 연한 앰버를 쓴다.
+     연한 바탕이라 위에 얹는 글씨는 흰색 대신 진한 갈색(--on-accent)이다. */
+  --bg: #f7f7f8;
   --card: #fff;
-  --text: #2b2320;
-  --muted: #7d7269;
-  --line: #ece4d8;
-  --accent: #f59f00;
-  --on-accent: #3d2500;
+  --text: #17181c;
+  --muted: #82838c;
+  --line: #e5e5e9;
+  --accent: #ffd97d;
+  --accent-line: #e0a93c; /* 연한 앰버는 흰 바탕에서 경계가 흐려 테두리에 쓴다 */
+  --on-accent: #4a2c00;
 }
 
 * { box-sizing: border-box; }
@@ -60,6 +61,7 @@ main {
 
 .tab.is-active {
   background: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
   color: var(--on-accent);
   font-weight: 600;
 }
@@ -125,7 +127,7 @@ main {
   height: 13px;
   margin-top: 8px;
   border-radius: 4px;
-  background: linear-gradient(90deg, #efe7da, #f9f4ec, #efe7da);
+  background: linear-gradient(90deg, #eee, #f6f6f6, #eee);
   background-size: 200% 100%;
   animation: shimmer 1.2s infinite;
 }
@@ -193,7 +195,7 @@ main {
 
 .field input:focus,
 .field textarea:focus {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--accent-line);
   outline-offset: -1px;
 }
 
@@ -224,7 +226,7 @@ main {
 
 .btn-primary {
   background: var(--accent);
-  border-color: var(--accent);
+  border-color: var(--accent-line);
   color: var(--on-accent);
   font-weight: 600;
 }
@@ -348,8 +350,8 @@ main {
   margin: 0 0 14px;
   padding: 11px 12px;
   border-radius: 10px;
-  background: #fff3da;
-  color: #6b3d00;
+  background: #eef3ff;
+  color: #1b3f8f;
   font-size: 14px;
 }
 
@@ -394,6 +396,7 @@ main {
 
 .topnav a[aria-current="page"] {
   background: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
   color: var(--on-accent);
   font-weight: 600;
 }
@@ -689,7 +692,7 @@ main {
 .thread textarea {
   width: 100%;
   padding: 10px;
-  border: 1px solid var(--accent);
+  border: 1px solid var(--accent-line);
   border-radius: 9px;
   font: inherit;
   background: var(--card);
@@ -813,7 +816,7 @@ main {
   width: 100%;
   margin-top: 4px;
   padding: 10px;
-  border: 1px solid var(--accent);
+  border: 1px solid var(--accent-line);
   border-radius: 10px;
   font: inherit;
   font-size: 15px;
@@ -1183,8 +1186,8 @@ main {
 }
 
 .create-card:has(input:checked) {
-  border-color: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--accent);
+  border-color: var(--accent-line);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
 }
 
 .create-card-title { font-weight: 600; }
@@ -1318,6 +1321,7 @@ main {
 
 .seg input:checked + span {
   background: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
   color: var(--on-accent);
   font-weight: 600;
 }
@@ -1337,13 +1341,13 @@ main {
 }
 
 .chips input:checked + span {
-  border-color: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--accent);
+  border-color: var(--accent-line);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
   font-weight: 600;
 }
 
 .seg input:focus-visible + span,
-.chips input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.chips input:focus-visible + span { outline: 2px solid var(--accent-line); outline-offset: 2px; }
 
 .create select {
   width: 100%;
