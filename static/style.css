@@ -1,10 +1,13 @@
 :root {
-  --bg: #f7f7f8;
+  /* 아이콘(앰버)에 맞춘 따뜻한 톤. 앰버 위에는 흰 글씨 대비가 모자라
+     진한 갈색(--on-accent)을 얹는다. */
+  --bg: #fdf9f3;
   --card: #fff;
-  --text: #17181c;
-  --muted: #82838c;
-  --line: #e5e5e9;
-  --accent: #17181c;
+  --text: #2b2320;
+  --muted: #7d7269;
+  --line: #ece4d8;
+  --accent: #f59f00;
+  --on-accent: #3d2500;
 }
 
 * { box-sizing: border-box; }
@@ -57,7 +60,7 @@ main {
 
 .tab.is-active {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 600;
 }
 
@@ -122,7 +125,7 @@ main {
   height: 13px;
   margin-top: 8px;
   border-radius: 4px;
-  background: linear-gradient(90deg, #eee, #f6f6f6, #eee);
+  background: linear-gradient(90deg, #efe7da, #f9f4ec, #efe7da);
   background-size: 200% 100%;
   animation: shimmer 1.2s infinite;
 }
@@ -222,7 +225,7 @@ main {
 .btn-primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 600;
 }
 
@@ -345,8 +348,8 @@ main {
   margin: 0 0 14px;
   padding: 11px 12px;
   border-radius: 10px;
-  background: #eef3ff;
-  color: #1b3f8f;
+  background: #fff3da;
+  color: #6b3d00;
   font-size: 14px;
 }
 
@@ -391,7 +394,7 @@ main {
 
 .topnav a[aria-current="page"] {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 600;
 }
 
@@ -612,7 +615,7 @@ main {
   height: 22px;
   border-radius: 50%;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 12px;
   font-weight: 700;
 }
@@ -782,7 +785,7 @@ main {
 .pencil-save {
   border-color: var(--accent);
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 600;
 }
 
@@ -1179,6 +1182,11 @@ main {
   stroke-linejoin: round;
 }
 
+.create-card:has(input:checked) {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
 .create-card-title { font-weight: 600; }
 
 .create-card-sub {
@@ -1310,7 +1318,7 @@ main {
 
 .seg input:checked + span {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 600;
 }
 
