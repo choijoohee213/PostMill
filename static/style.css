@@ -1139,12 +1139,112 @@ main {
 .create {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   margin-bottom: 14px;
+}
+
+/* 만들기 방식 카드 두 장 */
+.create-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.create-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
   padding: 14px;
   border: 1px solid var(--line);
   border-radius: 14px;
   background: var(--card);
+  cursor: pointer;
+}
+
+.create-card input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.create-card svg {
+  width: 22px;
+  height: 22px;
+  margin-bottom: 6px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.create-card-title { font-weight: 600; }
+
+.create-card-sub {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+/* 시트: 아래에서 올라온다. 자바스크립트가 없으면 그냥 이어지는 칸이다. */
+.sheet-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+}
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sheet-head strong { flex: 1; }
+
+.sheet-close {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 19px;
+  line-height: 30px;
+  cursor: pointer;
+}
+
+.sheet--modal { display: none; }
+
+.sheet--modal.is-open {
+  display: flex;
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.sheet--modal.is-open .sheet-panel {
+  width: 100%;
+  max-width: 600px;
+  max-height: 88vh;
+  overflow-y: auto;
+  border: 0;
+  border-radius: 16px 16px 0 0;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+  animation: sheet-up .18s ease-out;
+}
+
+@keyframes sheet-up {
+  from { transform: translateY(12px); }
+  to   { transform: none; }
 }
 
 .create fieldset {

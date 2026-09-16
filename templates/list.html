@@ -14,9 +14,32 @@
 {{end}}
 
 {{if eq .ActiveTab "review"}}
-<!-- 만들기: 제휴사와 누가 상품을 고를지 정한다. 선택에 맞는 칸만 app.js가 보여준다.
-     자바스크립트가 없으면 모든 칸이 보이고, 누른 버튼에 따라 서버가 필요한 값만 쓴다. -->
+<!-- 만들기: 방식을 카드 두 장으로 고르고, 고른 방식에 필요한 칸만 시트로 올라온다 (app.js).
+     자바스크립트가 없으면 시트 없이 아래에 그대로 펼쳐진다. -->
 <form class="create" id="create" method="post" action="/auto">
+  <div class="create-cards">
+    <label class="create-card">
+      <input type="radio" name="mode" value="ai"{{if not .Error}} checked{{end}}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5 13.6 9l5.4 1.6-5.4 1.7L12 17.7l-1.6-5.4L5 10.6 10.4 9z"/><path d="M18.5 15.5 19 17l1.5.5-1.5.6-.5 1.4-.6-1.4-1.4-.6 1.4-.5z"/></svg>
+      <span class="create-card-title">AI 추천 받기</span>
+      <span class="create-card-sub" id="ai-summary">초안 {{.BatchSize}}개</span>
+    </label>
+    <label class="create-card">
+      <input type="radio" name="mode" value="manual"{{if .Error}} checked{{end}}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 13.5a4 4 0 0 0 5.7 0l2.6-2.6a4 4 0 0 0-5.7-5.7l-1.3 1.3"/><path d="M13.5 10.5a4 4 0 0 0-5.7 0l-2.6 2.6a4 4 0 0 0 5.7 5.7l1.3-1.3"/></svg>
+      <span class="create-card-title">내 상품으로</span>
+      <span class="create-card-sub">링크 붙여넣기</span>
+    </label>
+  </div>
+
+  <div class="sheet" id="create-sheet">
+    <div class="sheet-panel">
+      <div class="sheet-head">
+        <strong data-when="ai">AI 추천 받기</strong>
+        <strong data-when="manual">내 상품으로 만들기</strong>
+        <button class="sheet-close" type="button" aria-label="닫기">×</button>
+      </div>
+
   {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
 
   <div class="create-row">
@@ -25,14 +48,6 @@
       {{range .Affiliates}}
       <label><input type="radio" name="affiliate" value="{{.Key}}"{{if eq .Key (or $.Form.Affiliate $.LastAff)}} checked{{end}}><span>{{.Label}}</span></label>
       {{end}}
-    </div>
-  </div>
-
-  <div class="create-row">
-    <span class="create-label">상품은</span>
-    <div class="seg">
-      <label><input type="radio" name="mode" value="ai"{{if not .Error}} checked{{end}}><span>AI가 골라요</span></label>
-      <label><input type="radio" name="mode" value="manual"{{if .Error}} checked{{end}}><span>내가 골라요</span></label>
     </div>
   </div>
 
@@ -112,6 +127,8 @@
     <p class="hint">적은 내용만 사실로 써요. 비워두면 가격이나 수치 없이 쓰는 느낌으로만 써요.</p>
     <button class="btn btn-primary btn-block" type="submit" formaction="/new">AI로 글 쓰기</button>
   </fieldset>
+    </div>
+  </div>
 </form>
 {{end}}
 
