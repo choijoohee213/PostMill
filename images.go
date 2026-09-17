@@ -61,9 +61,7 @@ func validateImage(data []byte) (string, error) {
 }
 
 // canEditImages는 사진을 붙이거나 뗄 수 있는 상태인지 본다.
-func canEditImages(p *Post) bool {
-	return p.Status != StatusPublishing && p.Status != StatusPublished
-}
+func canEditImages(p *Post) bool { return lockedReason(p) == "" }
 
 // handleImageUpload는 편집 화면에서 고른 사진들을 붙인다.
 // 브라우저에서 fetch로 부르므로 실패하면 사유를 본문으로 돌려준다.
