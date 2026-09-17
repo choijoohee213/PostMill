@@ -1366,3 +1366,21 @@ main {
   flex-direction: column;
   gap: 6px;
 }
+
+/* 올라가는 중이라 손댈 수 없는 카드 */
+.locked {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.locked .ico { width: 15px; height: 15px; }
+
+.notice .ico {
+  width: 15px;
+  height: 15px;
+  vertical-align: -2px;
+  margin-right: 4px;
+}

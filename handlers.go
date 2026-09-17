@@ -377,8 +377,36 @@ func (a *app) renderEdit(w http.ResponseWriter, r *http.Request, p *Post, errMsg
 	})
 }
 
-func (a *app) handleDraftSave(w http.ResponseWriter, r *http.Request) {
+// lockedReason은 지금 고칠 수 없는 글이면 그 이유를 돌려준다.
+//
+// 게시 중인 글은 이미 스레드에 올라가는 중이라, 고쳐도 올라간 글은 바뀌지 않는다.
+// 끊겨서 이어서 게시를 기다리는 글도 본문이 이미 올라가 있으므로 마찬가지다.
+func lockedReason(p *Post) string {
+	switch p.Status {
+	case StatusPublishing:
+		return "올리는 중이라 고칠 수 없어요. 다 올라가면 게시완료에서 볼 수 있어요."
+	case StatusPublished:
+		return "이미 게시한 글은 고칠 수 없어요."
+	}
+	return ""
+}
+
+// editableDraft는 고칠 수 있는 초안만 돌려준다. 아니면 이유를 보여준다.
+func (a *app) editableDraft(w http.ResponseWriter, r *http.Request) (*Post, bool) {
 	p, ok := a.draftFor(w, r)
+	if !ok {
+		return nil, false
+	}
+	if reason := lockedReason(p); reason != "" {
+		w.WriteHeader(http.StatusConflict)
+		a.renderEdit(w, r, p, reason)
+		return nil, false
+	}
+	return p, true
+}
+
+func (a *app) handleDraftSave(w http.ResponseWriter, r *http.Request) {
+	p, ok := a.editableDraft(w, r)
 	if !ok {
 		return
 	}
@@ -398,7 +426,7 @@ func (a *app) handleDraftSave(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) handleRegenerate(w http.ResponseWriter, r *http.Request) {
-	p, ok := a.draftFor(w, r)
+	p, ok := a.editableDraft(w, r)
 	if !ok {
 		return
 	}
@@ -424,7 +452,7 @@ func (a *app) handleUnhold(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) changeStatus(w http.ResponseWriter, r *http.Request, status, redirect string) {
-	p, ok := a.draftFor(w, r)
+	p, ok := a.editableDraft(w, r)
 	if !ok {
 		return
 	}
@@ -437,7 +465,7 @@ func (a *app) changeStatus(w http.ResponseWriter, r *http.Request, status, redir
 }
 
 func (a *app) handleDelete(w http.ResponseWriter, r *http.Request) {
-	p, ok := a.draftFor(w, r)
+	p, ok := a.editableDraft(w, r)
 	if !ok {
 		return
 	}
