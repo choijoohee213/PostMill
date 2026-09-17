@@ -134,6 +134,10 @@ type listExtra struct {
 
 func (a *app) renderList(w http.ResponseWriter, r *http.Request, extra listExtra) {
 	a.expireImages(r)
+	// 끊긴 채 남은 게시를 여기서 이어서 마친다. 크론이 없어 화면을 열 때 훑는다.
+	if u, ok := a.currentUser(r); ok {
+		a.resumeStuck(r, u)
+	}
 
 	active := r.URL.Query().Get("tab")
 	current := tabs[0]

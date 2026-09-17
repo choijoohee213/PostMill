@@ -6,7 +6,7 @@
 
 {{if eq .Post.Status "publishing"}}
 <!-- 올라가는 중이라 고칠 수 없다. 멈췄으면 이어서 게시만 할 수 있다. -->
-<p class="notice">{{template "lock_icon"}}{{if canResume .Post}}게시가 중간에 멈췄어요. 이어서 누르면 남은 답글만 올려요.{{else}}올리는 중이에요. 다 올라가면 게시완료에서 볼 수 있어요.{{end}} 올리는 동안에는 고칠 수 없어요.</p>
+<p class="notice">{{template "lock_icon"}}{{if .Post.ErrorMsg}}{{.Post.ErrorMsg}}{{else if canResume .Post}}게시가 중간에 멈췄어요. 이어서 누르면 남은 답글만 올려요.{{else}}올리는 중이에요. 다 올라가면 게시완료에서 볼 수 있어요.{{end}} 올리는 동안에는 고칠 수 없어요.</p>
 <p class="tbody published-body">{{.Preview}}</p>
 {{if .Post.Detail}}
 <p class="part-label">답글</p>

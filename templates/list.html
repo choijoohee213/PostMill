@@ -185,7 +185,7 @@
       {{else if eq .Status "publishing"}}
       <!-- 올라가는 중인 글은 고쳐도 올라간 글이 바뀌지 않아 손대지 못하게 둔다. -->
       <div class="card-actions">
-        <span class="locked">{{template "lock_icon"}}{{if canResume .}}게시가 멈췄어요{{else}}올리는 중이에요…{{end}}</span>
+        <span class="locked">{{template "lock_icon"}}{{if .ErrorMsg}}{{.ErrorMsg}}{{else if canResume .}}게시가 멈췄어요{{else}}올리는 중이에요…{{end}}</span>
         <span class="spacer"></span>
         {{if canResume .}}
           <form method="post" action="/drafts/{{.ID}}/resume" data-publish>
@@ -199,7 +199,7 @@
           <input type="hidden" name="back" value="list">
           <button class="icon-btn" type="submit" title="이 카드만 새로 만들기" aria-label="새로 만들기">⟳</button>
         </form>
-        <a class="btn btn-small" href="/drafts/{{.ID}}">열어서 편집</a>
+        <a class="btn btn-small" href="/drafts/{{.ID}}">수정</a>
         <span class="spacer"></span>
         {{if .AffiliateLink}}
         <form method="post" action="/drafts/{{.ID}}/publish" data-publish>

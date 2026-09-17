@@ -173,3 +173,23 @@ func TestLocked_게시_중인_글은_고칠_수_없다(t *testing.T) {
 		t.Error("게시 중인 글에 사진을 붙일 수 있다")
 	}
 }
+
+func TestTighten_빈_줄을_없앤다(t *testing.T) {
+	got := tighten("첫 줄이야\n\n둘째 줄\n   \n\n셋째 줄  ")
+	if got != "첫 줄이야\n둘째 줄\n셋째 줄" {
+		t.Fatalf("%q", got)
+	}
+}
+
+func TestGenerateDraft_빈_줄을_없애고_저장한다(t *testing.T) {
+	g, _ := fakeGemini(t, func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, okBody("첫 줄\n\n둘째 줄\n---\n답글 첫 줄\n\n답글 둘째 줄"))
+	})
+	body, detail, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400, hookTypes[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body != "첫 줄\n둘째 줄" || detail != "답글 첫 줄\n답글 둘째 줄" {
+		t.Fatalf("body=%q detail=%q", body, detail)
+	}
+}
