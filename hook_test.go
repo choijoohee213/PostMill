@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"unicode/utf8"
 )
 
 // promptRecorder는 모델에게 간 요청 문장을 모은다.
@@ -191,5 +192,31 @@ func TestGenerateDraft_빈_줄을_없애고_저장한다(t *testing.T) {
 	}
 	if body != "첫 줄\n둘째 줄" || detail != "답글 첫 줄\n답글 둘째 줄" {
 		t.Fatalf("body=%q detail=%q", body, detail)
+	}
+}
+
+func TestVaryLaughs_ㅋㅋ_ㅠㅠ_길이를_섞는다(t *testing.T) {
+	seen := map[string]bool{}
+	for i := 0; i < 200; i++ {
+		got := varyLaughs("아 이거 ㅋㅋ\n진작 살걸 ㅠㅠ\nㅋ 하나는 그대로")
+		lines := strings.Split(got, "\n")
+		laugh := strings.TrimPrefix(lines[0], "아 이거 ")
+		sob := strings.TrimPrefix(lines[1], "진작 살걸 ")
+		if strings.Trim(laugh, "ㅋ") != "" || strings.Trim(sob, "ㅠ") != "" {
+			t.Fatalf("ㅋ, ㅠ 말고 다른 글자가 바뀌었다: %q", got)
+		}
+		if n := utf8.RuneCountInString(laugh); n < 2 || n > 6 {
+			t.Fatalf("ㅋ가 %d개다", n)
+		}
+		if n := utf8.RuneCountInString(sob); n < 2 || n > 5 {
+			t.Fatalf("ㅠ가 %d개다", n)
+		}
+		if lines[2] != "ㅋ 하나는 그대로" {
+			t.Fatalf("한 글자짜리는 건드리지 않아야 한다: %q", lines[2])
+		}
+		seen[laugh] = true
+	}
+	if len(seen) < 3 {
+		t.Fatalf("길이가 섞이지 않았다: %v", seen)
 	}
 }
