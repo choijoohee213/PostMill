@@ -22,8 +22,8 @@ func TestNormalizeTopic_다듬고_규칙에_맞는지_본다(t *testing.T) {
 		{in: "  ", want: ""},
 		{in: "생활용품", want: "생활용품"},
 		{in: " #생활용품 ", want: "생활용품"}, // 해시는 붙여도 되고 안 붙여도 된다
-		{in: "가성비.추천", bad: true},      // 마침표 불가
-		{in: "책&영화", bad: true},        // & 불가
+		{in: "가성비.추천", bad: true},     // 마침표 불가
+		{in: "책&영화", bad: true},       // & 불가
 		{in: strings.Repeat("가", TopicMaxChars), want: strings.Repeat("가", TopicMaxChars)},
 		{in: strings.Repeat("가", TopicMaxChars+1), bad: true},
 	}
