@@ -8,7 +8,7 @@
 <!-- 올라가는 중이라 고칠 수 없다. 멈췄으면 이어서 게시만 할 수 있다. -->
 <p class="notice">{{template "lock_icon"}}{{if .Post.ErrorMsg}}{{.Post.ErrorMsg}}{{else if canResume .Post}}게시가 중간에 멈췄어요. 이어서 누르면 남은 답글만 올려요.{{else}}올리는 중이에요. 다 올라가면 게시완료에서 볼 수 있어요.{{end}} 올리는 동안에는 고칠 수 없어요.</p>
 <p class="tbody published-body">{{.Preview}}</p>
-{{if .Post.Topic}}<p class="topic-tag">#{{.Post.Topic}}</p>{{end}}
+{{if .Post.Topic}}<p class="topic-tag">› {{.Post.Topic}}</p>{{end}}
 {{if .Post.Detail}}
 <p class="part-label">답글</p>
 <p class="tbody published-body">{{.Post.Detail}}</p>
@@ -28,7 +28,7 @@
 <!-- 게시한 글은 고칠 게 없으므로 올라간 본문과 Threads로 가는 길만 둔다. -->
 <p class="notice">게시한 글이에요.</p>
 <p class="tbody published-body">{{.Preview}}</p>
-{{if .Post.Topic}}<p class="topic-tag">#{{.Post.Topic}}</p>{{end}}
+{{if .Post.Topic}}<p class="topic-tag">› {{.Post.Topic}}</p>{{end}}
 {{if .Post.ThreadPermalink}}
 <a class="btn btn-primary btn-block" href="{{.Post.ThreadPermalink}}" target="_blank" rel="noopener">Threads에서 보기</a>
 {{end}}
@@ -77,6 +77,16 @@
         <div class="tpost-main">
           <div class="tpost-top">
             <span class="thandle">{{.Handle}}</span>
+            {{/* 주제(topic_tag)는 Threads처럼 이름 옆에 "> 주제"로 붙는다. 본문 글에만 하나. 칸을 벗어나면 저장된다. */}}
+            <label class="topic" title="주제">
+              <span class="topic-sep" aria-hidden="true">›</span>
+              <input type="text" name="topic" id="topic" value="{{.Post.Topic}}"
+                     maxlength="{{.TopicLimit}}" list="topic-list" autocomplete="off"
+                     placeholder="주제 추가" aria-label="주제">
+            </label>
+            {{if .Topics}}
+            <datalist id="topic-list">{{range .Topics}}<option value="{{.}}"></option>{{end}}</datalist>
+            {{end}}
             <button class="pencil" type="button" data-edit="body" title="본문 수정" aria-label="본문 수정">✎</button>
           </div>
           <p class="disclosure">{{.Disclosure}}</p>
@@ -87,16 +97,6 @@
             <textarea name="body" id="body" rows="6" data-room="{{.Room}}">{{.Post.Body}}</textarea>
             <span class="counter" id="counter" data-room="{{.Room}}">{{.Used}} / {{.Room}}</span>
           </div>
-          {{/* 주제(topic_tag)는 본문 글에만 하나 붙는다. 칸을 벗어나면 저장된다. */}}
-          <label class="topic">
-            <span class="topic-hash">#</span>
-            <input type="text" name="topic" id="topic" value="{{.Post.Topic}}"
-                   maxlength="{{.TopicLimit}}" list="topic-list" autocomplete="off"
-                   placeholder="주제 (비워두면 안 붙어요)">
-          </label>
-          {{if .Topics}}
-          <datalist id="topic-list">{{range .Topics}}<option value="{{.}}"></option>{{end}}</datalist>
-          {{end}}
           {{/* 사진은 본문 첫 글에 붙는다. 넣고 빼기는 app.js가 바로 서버에 보낸다.
                이 폼 안에 삭제 폼을 둘 수 없어 버튼에 주소만 달아둔다. */}}
           {{$canEdit := canEditImages .Post}}
