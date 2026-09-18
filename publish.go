@@ -142,6 +142,74 @@ func (a *app) runPublish(p *Post, token, body, link string) {
 	log.Printf("게시 완료 (id=%d) %s", p.ID, permalink)
 }
 
+// publishGiveUp이 지나도록 게시가 끝나지 않으면 더 이어보지 않고 상태를 정리한다.
+// 본문조차 안 올라갔으면 실패로 되돌려 다시 게시할 수 있게 하고, 본문이 올라갔으면
+// 게시완료로 옮기되 사유를 남긴다. 계속 "게시 중"으로 남아 있으면 사용자가
+// 무엇이 잘못됐는지 알 수 없다.
+const publishGiveUp = 30 * time.Minute
+
+// resumeStuck은 끊긴 채 남은 게시를 이어서 마친다.
+//
+// 크론이 없으므로 목록을 열 때 훑는다 (SPEC 5-3과 같은 방식). goroutine이 죽거나
+// 무료 서버가 잠들어 중간에 끊긴 글이 계속 "게시 중"으로 남는 것을 막는다.
+func (a *app) resumeStuck(r *http.Request, u *ThreadsUser) {
+	if u == nil {
+		return
+	}
+	ctx := r.Context()
+	stuck, err := a.db.ListStuckPublishing(ctx, u.UserID)
+	if err != nil {
+		log.Printf("끊긴 게시 조회 실패: %v", err)
+		return
+	}
+	for _, p := range stuck {
+		if p.PublishStartedAt != nil && time.Since(*p.PublishStartedAt) > publishGiveUp {
+			a.giveUpPublish(ctx, p)
+			continue
+		}
+
+		text, err := Compose(p.Affiliate, p.Body)
+		if err != nil {
+			log.Printf("끊긴 게시 조립 실패 (id=%d): %v", p.ID, err)
+			continue
+		}
+		reply, err := ComposeReply(p.AffiliateLink)
+		if err != nil {
+			log.Printf("끊긴 게시 링크 없음 (id=%d): %v", p.ID, err)
+			continue
+		}
+		claimed, err := a.db.ClaimForResume(ctx, p.UserID, p.ID)
+		if err != nil || !claimed {
+			continue
+		}
+		log.Printf("끊긴 게시를 이어서 마친다 (id=%d)", p.ID)
+		a.startPublish(p, u.AccessToken, text, reply)
+	}
+}
+
+// giveUpPublish는 오래 끌린 게시를 끝낸 것으로 정리한다.
+func (a *app) giveUpPublish(ctx context.Context, p *Post) {
+	if p.ThreadPostID == "" {
+		// 본문조차 올라가지 않았으니 되돌려도 두 번 올라가지 않는다.
+		if err := a.db.MarkFailed(ctx, p.ID, "게시가 시작되지 못했어요. 다시 눌러주세요."); err != nil {
+			log.Printf("게시 포기 기록 실패 (id=%d): %v", p.ID, err)
+		}
+		return
+	}
+	note := p.ErrorMsg
+	if note == "" {
+		note = "일부가 올라가지 않았어요. 스레드에서 확인해주세요."
+	}
+	if err := a.db.MarkPublished(ctx, p.ID, p.ThreadPermalink); err != nil {
+		log.Printf("게시 포기 기록 실패 (id=%d): %v", p.ID, err)
+		return
+	}
+	if err := a.db.SetPublishNote(ctx, p.ID, note); err != nil {
+		log.Printf("게시 포기 사유 기록 실패 (id=%d): %v", p.ID, err)
+	}
+	log.Printf("게시를 더 이어가지 않는다 (id=%d): %s", p.ID, note)
+}
+
 // handleResumePublish는 끊긴 게시를 이어서 마친다.
 //
 // 본문이 이미 올라가 있으면 건너뛰고 남은 답글만 올린다.

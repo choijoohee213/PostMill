@@ -204,3 +204,61 @@ func TestAuthorizeHost_사라진_상수를_쓰지_않는다(t *testing.T) {
 		t.Fatalf("scope에 threads_manage_replies가 없다: %q", threadsScopes)
 	}
 }
+
+// retryServer는 컨테이너 생성에서 앞의 fails번을 주어진 코드로 거절한다.
+func retryServer(t *testing.T, fails, code int) (*Threads, *int) {
+	t.Helper()
+	tries := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/me/threads":
+			tries++
+			if tries <= fails {
+				w.WriteHeader(code)
+				fmt.Fprint(w, `{"error":{"message":"An unexpected error has occurred. Please retry your request later."}}`)
+				return
+			}
+			fmt.Fprint(w, `{"id":"container-1"}`)
+		case "/me/threads_publish":
+			fmt.Fprint(w, `{"id":"post-1"}`)
+		default:
+			json.NewEncoder(w).Encode(map[string]string{"status": "FINISHED"})
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return &Threads{HTTP: srv.Client(), BaseURL: srv.URL + "/"}, &tries
+}
+
+func TestPublishText_일시적인_오류는_다시_시도한다(t *testing.T) {
+	orig := retryDelays
+	retryDelays = []time.Duration{time.Millisecond, time.Millisecond}
+	defer func() { retryDelays = orig }()
+
+	th, tries := retryServer(t, 2, http.StatusInternalServerError)
+
+	id, err := th.PublishText(context.Background(), "tok", "답글", "post-0")
+	if err != nil {
+		t.Fatalf("다시 시도해서 올라가야 한다: %v", err)
+	}
+	if id != "post-1" {
+		t.Fatalf("발행 id가 다르다: %q", id)
+	}
+	if *tries != 3 {
+		t.Fatalf("컨테이너 생성 시도가 %d번이다", *tries)
+	}
+}
+
+func TestPublishText_잘못된_요청은_다시_시도하지_않는다(t *testing.T) {
+	orig := retryDelays
+	retryDelays = []time.Duration{time.Millisecond, time.Millisecond}
+	defer func() { retryDelays = orig }()
+
+	th, tries := retryServer(t, 99, http.StatusBadRequest)
+
+	if _, err := th.PublishText(context.Background(), "tok", "답글", "post-0"); err == nil {
+		t.Fatal("에러여야 한다")
+	}
+	if *tries != 1 {
+		t.Fatalf("400인데 %d번 시도했다", *tries)
+	}
+}

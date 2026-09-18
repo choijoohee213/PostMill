@@ -182,28 +182,31 @@
         <a class="btn btn-small" href="{{.ThreadPermalink}}" target="_blank" rel="noopener">Threads에서 보기</a>
       </div>
       {{end}}
+      {{else if eq .Status "publishing"}}
+      <!-- 올라가는 중인 글은 고쳐도 올라간 글이 바뀌지 않아 손대지 못하게 둔다. -->
+      <div class="card-actions">
+        <span class="locked">{{template "lock_icon"}}{{if .ErrorMsg}}{{.ErrorMsg}}{{else if canResume .}}게시가 멈췄어요{{else}}올리는 중이에요…{{end}}</span>
+        <span class="spacer"></span>
+        {{if canResume .}}
+          <form method="post" action="/drafts/{{.ID}}/resume" data-publish>
+            <button class="btn btn-small btn-primary" type="submit">이어서 게시</button>
+          </form>
+        {{end}}
+      </div>
       {{else}}
       <div class="card-actions">
         <form method="post" action="/drafts/{{.ID}}/refresh">
           <input type="hidden" name="back" value="list">
           <button class="icon-btn" type="submit" title="이 카드만 새로 만들기" aria-label="새로 만들기">⟳</button>
         </form>
-        <a class="btn btn-small" href="/drafts/{{.ID}}">열어서 편집</a>
+        <a class="btn btn-small" href="/drafts/{{.ID}}">수정</a>
         <span class="spacer"></span>
-        {{if canResume .}}
-          <form method="post" action="/drafts/{{.ID}}/resume" data-publish>
-            <button class="btn btn-small btn-primary" type="submit">이어서 게시</button>
-          </form>
-        {{else if eq .Status "publishing"}}
-          <span class="need-link">올리는 중이에요...</span>
+        {{if .AffiliateLink}}
+        <form method="post" action="/drafts/{{.ID}}/publish" data-publish>
+          <button class="btn btn-small btn-primary" type="submit">Threads에 게시</button>
+        </form>
         {{else}}
-          {{if .AffiliateLink}}
-          <form method="post" action="/drafts/{{.ID}}/publish" data-publish>
-            <button class="btn btn-small btn-primary" type="submit">Threads에 게시</button>
-          </form>
-          {{else}}
-          <span class="need-link">게시하려면 제휴 링크가 필요해요</span>
-          {{end}}
+        <span class="need-link">게시하려면 제휴 링크가 필요해요</span>
         {{end}}
       </div>
       {{end}}

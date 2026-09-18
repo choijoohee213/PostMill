@@ -703,3 +703,65 @@ func TestBatch_초안_머리말을_떼고_읽는다(t *testing.T) {
 		t.Errorf("머리말이 아닌 이름을 잘랐다: %q", got)
 	}
 }
+
+// 끊긴 게시가 계속 "게시 중"으로 남으면 사용자가 무엇이 잘못됐는지 알 수 없다.
+func TestResumeStuck_끊긴_게시를_이어서_마치고_오래되면_정리한다(t *testing.T) {
+	rec := &publishRecorder{}
+	a := publishApp(t, rec.server(t))
+	a.session = testSession()
+	ctx := context.Background()
+	const user = "stuck-user"
+	u := ThreadsUser{UserID: user, AccessToken: "tok", ExpiresAt: nowPlusDays(30)}
+	a.db.SaveThreadsUser(ctx, u)
+
+	// 본문과 답글 하나까지 올라간 뒤 끊긴 글을 만든다.
+	stuck := newPublishable(t, a.db, user)
+	a.db.SetPublishedBody(ctx, stuck.ID, "p1", "https://threads/p1")
+	a.db.SetReplyDone(ctx, stuck.ID, 1, "p1")
+	old := time.Now().Add(-publishStaleAfter - time.Minute)
+	a.db.pool.Exec(ctx, `UPDATE posts SET publish_started_at = $2 WHERE id = $1`, stuck.ID, old)
+
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	a.resumeStuck(r, &u)
+	for i := 0; i < 100; i++ {
+		if p, _ := a.db.GetPost(ctx, user, stuck.ID); p.Status == StatusPublished {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	p, _ := a.db.GetPost(ctx, user, stuck.ID)
+	if p.Status != StatusPublished {
+		t.Fatalf("상태=%s, 이어서 마쳐야 한다", p.Status)
+	}
+	var texts []string
+	for _, c := range rec.calls() {
+		texts = append(texts, c.Text)
+	}
+	// 답글 하나까지 올라갔으므로 남은 답글과 링크만 올라간다.
+	if strings.Join(texts, "|") != "답글둘|https://link/x" {
+		t.Fatalf("올린 것=%v, 남은 답글과 링크만 올려야 한다", texts)
+	}
+
+	// 너무 오래 끌린 글은 더 이어가지 않고 정리한다.
+	giveUp := newPublishable(t, a.db, user)
+	a.db.SetPublishedBody(ctx, giveUp.ID, "p9", "https://threads/p9")
+	a.db.SetPublishNote(ctx, giveUp.ID, "답글 1을 올리지 못했습니다.")
+	a.db.pool.Exec(ctx, `UPDATE posts SET publish_started_at = $2 WHERE id = $1`,
+		giveUp.ID, time.Now().Add(-publishGiveUp-time.Minute))
+
+	a.resumeStuck(r, &u)
+	p, _ = a.db.GetPost(ctx, user, giveUp.ID)
+	if p.Status != StatusPublished || p.ErrorMsg == "" {
+		t.Fatalf("오래된 글 상태=%s 사유=%q, 사유를 남기고 게시완료로 옮겨야 한다", p.Status, p.ErrorMsg)
+	}
+
+	// 본문조차 못 올린 글은 되돌려 다시 게시할 수 있게 한다.
+	never := newPublishable(t, a.db, user)
+	a.db.pool.Exec(ctx, `UPDATE posts SET publish_started_at = $2 WHERE id = $1`,
+		never.ID, time.Now().Add(-publishGiveUp-time.Minute))
+	a.resumeStuck(r, &u)
+	p, _ = a.db.GetPost(ctx, user, never.ID)
+	if p.Status != StatusFailed {
+		t.Fatalf("상태=%s, failed여야 한다", p.Status)
+	}
+}

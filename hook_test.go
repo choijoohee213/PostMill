@@ -127,3 +127,69 @@ func TestSingleReply_자동_초안은_답글이_하나다(t *testing.T) {
 		t.Fatalf("초안=%+v", p)
 	}
 }
+
+// 올라가는 중인 글을 고치면 이미 올라간 글과 어긋난다. 서버에서 막는다.
+func TestLocked_게시_중인_글은_고칠_수_없다(t *testing.T) {
+	a := manualApp(t, nil)
+	ctx := context.Background()
+	const user = "locked-user"
+	id, _ := a.db.CreateManualDraft(ctx, user, ManualDraft{Affiliate: AffiliateCoupang, ProductName: "설거지통", AffiliateLink: "https://link.coupang.com/a"})
+	t.Cleanup(func() { a.db.DeletePost(ctx, user, id) })
+	a.db.SetGenerated(ctx, id, "원래 본문", "원래 답글", "")
+	a.db.ClaimForPublish(ctx, user, id) // 게시 중으로 만든다
+
+	login := httptest.NewRecorder()
+	a.session.issue(login, user, false)
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /drafts/{id}", a.handleDraftSave)
+	mux.HandleFunc("POST /drafts/{id}/link", a.handleSaveLink)
+	mux.HandleFunc("POST /drafts/{id}/refresh", a.handleRefresh)
+	mux.HandleFunc("POST /drafts/{id}/hold", a.handleHold)
+	mux.HandleFunc("POST /drafts/{id}/delete", a.handleDelete)
+
+	for path, form := range map[string]url.Values{
+		"":         {"body": {"바꾼 본문"}, "detail": {"바꾼 답글"}},
+		"/link":    {"affiliate_link": {"https://link.coupang.com/바꾼링크"}},
+		"/refresh": {},
+		"/hold":    {},
+		"/delete":  {},
+	} {
+		req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/drafts/%d%s", id, path), strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.AddCookie(cookieFrom(t, login))
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "올리는 중이라") {
+			t.Errorf("%q: code=%d body=%q", path, w.Code, w.Body.String())
+		}
+	}
+
+	p, err := a.db.GetPost(ctx, user, id)
+	if err != nil || p.Status != StatusPublishing || p.Body != "원래 본문" ||
+		p.AffiliateLink != "https://link.coupang.com/a" {
+		t.Fatalf("글이 바뀌었다: %+v err=%v", p, err)
+	}
+	if canEditImages(p) {
+		t.Error("게시 중인 글에 사진을 붙일 수 있다")
+	}
+}
+
+func TestTighten_빈_줄을_없앤다(t *testing.T) {
+	got := tighten("첫 줄이야\n\n둘째 줄\n   \n\n셋째 줄  ")
+	if got != "첫 줄이야\n둘째 줄\n셋째 줄" {
+		t.Fatalf("%q", got)
+	}
+}
+
+func TestGenerateDraft_빈_줄을_없애고_저장한다(t *testing.T) {
+	g, _ := fakeGemini(t, func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, okBody("첫 줄\n\n둘째 줄\n---\n답글 첫 줄\n\n답글 둘째 줄"))
+	})
+	body, detail, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400, hookTypes[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body != "첫 줄\n둘째 줄" || detail != "답글 첫 줄\n답글 둘째 줄" {
+		t.Fatalf("body=%q detail=%q", body, detail)
+	}
+}

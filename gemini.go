@@ -71,7 +71,8 @@ const draftSystemPrompt = `너는 스레드(Threads)에 제휴 마케팅 글을 
 양쪽 모두 지킬 것:
 - 반말. 친구한테 카톡하듯.
 - 직접 써본 1인칭. "샀는데", "써보니까" 처럼.
-- 한 줄은 짧게 끊고 줄바꿈을 자주 넣는다.
+- 한 줄은 짧게 끊고 줄바꿈을 자주 넣는다. 다만 빈 줄은 넣지 마라.
+  줄과 줄 사이를 두 번 띄우면 글이 성기게 보인다.
 - "그리고", "또", "게다가", "무엇보다" 로 항목을 이어붙이지 마라.
 - ㅋㅋ, ㅎㅎ, ㅠㅠ, ;;, ~, ! 를 섞되 각 부분에서 한두 번이면 충분하다.
   만족스러운 얘기엔 ㅋㅋ ㅎㅎ ! ~, 불편했던 얘기엔 ㅠㅠ ;; 를 쓴다.
@@ -260,6 +261,7 @@ func (g *Gemini) generateOnce(ctx context.Context, affiliate, memo string, room 
 	}
 
 	body, detail := splitDraft(raw)
+	body, detail = tighten(body), tighten(detail)
 	// 아래는 생성이 매번 달라지므로 다시 뽑으면 통과할 수 있다.
 	if body == "" {
 		return "", "", retryableError{err: fmt.Errorf("모델이 빈 응답을 반환했다")}
@@ -398,6 +400,18 @@ func (g *Gemini) callKey(ctx context.Context, key string, payload []byte) (strin
 		b.WriteString(p.Text)
 	}
 	return strings.TrimSpace(b.String()), nil
+}
+
+// tighten은 빈 줄을 없앤다. 모델이 문장마다 한 줄씩 띄워 보내면 글이 성기게 보인다.
+func tighten(s string) string {
+	lines := strings.Split(strings.TrimSpace(s), "\n")
+	kept := lines[:0]
+	for _, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			kept = append(kept, strings.TrimRight(line, " \t"))
+		}
+	}
+	return strings.Join(kept, "\n")
 }
 
 // splitDraft는 모델 출력을 본문과 디테일로 나눈다.
@@ -550,7 +564,7 @@ func (g *Gemini) SuggestDrafts(ctx context.Context, affiliate string, avoid []st
 			if len(parts) < 3 {
 				continue
 			}
-			d := &AutoDraft{ProductName: firstLine(parts[0]), Body: parts[1], Detail: parts[2]}
+			d := &AutoDraft{ProductName: firstLine(parts[0]), Body: tighten(parts[1]), Detail: tighten(parts[2])}
 			if d.ProductName == "" || validDraft(d) != nil {
 				continue
 			}
@@ -611,7 +625,7 @@ func (g *Gemini) SuggestFromTossBatch(ctx context.Context, products []TossProduc
 			if err != nil || n < 1 || n > len(products) || used[n] {
 				continue
 			}
-			d := &AutoDraft{ProductName: products[n-1].DisplayName, Body: parts[1], Detail: parts[2]}
+			d := &AutoDraft{ProductName: products[n-1].DisplayName, Body: tighten(parts[1]), Detail: tighten(parts[2])}
 			if validDraft(d) != nil {
 				continue
 			}

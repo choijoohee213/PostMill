@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -45,6 +46,55 @@ type threadsError struct {
 	} `json:"error"`
 }
 
+// apiError는 Threads가 상태 코드와 함께 돌려준 오류다.
+// 잠시 뒤 다시 하면 되는 오류인지 가리기 위해 코드를 들고 다닌다.
+type apiError struct {
+	Status  int
+	Message string
+}
+
+func (e *apiError) Error() string {
+	if e.Message != "" {
+		return fmt.Sprintf("Threads API 오류 (HTTP %d): %s", e.Status, e.Message)
+	}
+	return fmt.Sprintf("Threads API 오류 (HTTP %d)", e.Status)
+}
+
+// transient는 Threads 쪽 일시적인 오류인지 본다. 실제로 답글을 올리다
+// "HTTP 500: An unexpected error has occurred. Please retry your request later."를
+// 받아 링크가 빠진 적이 있다. 429도 조금 기다리면 풀린다.
+func transient(err error) bool {
+	var e *apiError
+	if errors.As(err, &e) {
+		return e.Status >= 500 || e.Status == http.StatusTooManyRequests
+	}
+	// 연결이 끊기거나 응답이 늦은 것도 다시 해볼 만하다.
+	// 시간이 다 된 경우는 기다려도 소용없다.
+	var netErr *url.Error
+	return errors.As(err, &netErr) &&
+		!errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded)
+}
+
+// retryDelays는 일시적 오류를 다시 시도하기까지 기다리는 시간이다.
+var retryDelays = []time.Duration{2 * time.Second, 6 * time.Second}
+
+// retryTransient는 일시적 오류면 잠시 뒤 다시 한다.
+//
+// 같은 요청을 두 번 보내도 괜찮은 곳에만 쓴다. 컨테이너를 또 만드는 것은
+// 발행하지 않으면 사라지므로 안전하지만, 발행(threads_publish)은 그렇지 않다.
+func retryTransient[T any](ctx context.Context, fn func() (T, error)) (T, error) {
+	out, err := fn()
+	for i := 0; err != nil && transient(err) && i < len(retryDelays); i++ {
+		select {
+		case <-time.After(retryDelays[i]):
+		case <-ctx.Done():
+			return out, err
+		}
+		out, err = fn()
+	}
+	return out, err
+}
+
 // post는 Threads API에 POST하고 JSON 응답의 id를 반환한다.
 func (t *Threads) post(ctx context.Context, path string, form url.Values) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
@@ -67,10 +117,7 @@ func (t *Threads) post(ctx context.Context, path string, form url.Values) (strin
 	if resp.StatusCode != http.StatusOK {
 		var e threadsError
 		json.Unmarshal(raw, &e)
-		if e.Error.Message != "" {
-			return "", fmt.Errorf("Threads API 오류 (HTTP %d): %s", resp.StatusCode, e.Error.Message)
-		}
-		return "", fmt.Errorf("Threads API 오류 (HTTP %d)", resp.StatusCode)
+		return "", &apiError{Status: resp.StatusCode, Message: e.Error.Message}
 	}
 
 	var out struct {
@@ -95,7 +142,10 @@ func (t *Threads) createContainer(ctx context.Context, token, text, replyTo stri
 	if replyTo != "" {
 		form.Set("reply_to_id", replyTo)
 	}
-	return t.post(ctx, "me/threads", form)
+	// 컨테이너는 발행하지 않으면 사라지므로 다시 만들어도 안전하다.
+	return retryTransient(ctx, func() (string, error) {
+		return t.post(ctx, "me/threads", form)
+	})
 }
 
 func (t *Threads) publishContainer(ctx context.Context, token, containerID string) (string, error) {
@@ -118,7 +168,16 @@ func (t *Threads) waitForContainer(ctx context.Context, token, containerID strin
 	for {
 		status, errMsg, err := t.containerStatus(ctx, token, containerID)
 		if err != nil {
-			return err
+			// 일시적인 오류면 다음 차례에 다시 물어본다.
+			if !transient(err) || time.Now().After(deadline) {
+				return err
+			}
+			select {
+			case <-time.After(containerPollInterval):
+				continue
+			case <-ctx.Done():
+				return ctx.Err()
+			}
 		}
 		switch status {
 		case "FINISHED":
@@ -158,10 +217,8 @@ func (t *Threads) containerStatus(ctx context.Context, token, containerID string
 	if resp.StatusCode != http.StatusOK {
 		var e threadsError
 		json.Unmarshal(raw, &e)
-		if e.Error.Message != "" {
-			return "", "", fmt.Errorf("컨테이너 상태 조회 실패: %s", e.Error.Message)
-		}
-		return "", "", fmt.Errorf("컨테이너 상태 조회 실패 (HTTP %d)", resp.StatusCode)
+		return "", "", fmt.Errorf("컨테이너 상태 조회 실패: %w",
+			&apiError{Status: resp.StatusCode, Message: e.Error.Message})
 	}
 
 	var out struct {
@@ -210,7 +267,9 @@ func (t *Threads) PublishImages(ctx context.Context, token, text string, imageUR
 			item.Set("image_url", u)
 			item.Set("is_carousel_item", "true")
 			item.Set("access_token", token)
-			id, err := t.post(ctx, "me/threads", item)
+			id, err := retryTransient(ctx, func() (string, error) {
+				return t.post(ctx, "me/threads", item)
+			})
 			if err != nil {
 				return "", err
 			}
@@ -223,7 +282,9 @@ func (t *Threads) PublishImages(ctx context.Context, token, text string, imageUR
 		form.Set("children", strings.Join(children, ","))
 	}
 
-	containerID, err := t.post(ctx, "me/threads", form)
+	containerID, err := retryTransient(ctx, func() (string, error) {
+		return t.post(ctx, "me/threads", form)
+	})
 	if err != nil {
 		return "", err
 	}

@@ -107,7 +107,7 @@ func (a *app) handleAutoOne(w http.ResponseWriter, r *http.Request) {
 
 // handleRefresh는 카드 하나를 버리고 새로 만든다.
 func (a *app) handleRefresh(w http.ResponseWriter, r *http.Request) {
-	p, ok := a.draftFor(w, r)
+	p, ok := a.editableDraft(w, r)
 	if !ok {
 		return
 	}
@@ -204,7 +204,7 @@ func (a *app) suggestOne(id int64, userID, affiliate string, avoid []string) {
 
 // handleSaveLink는 상세 화면에서 입력한 제휴 링크를 저장한다.
 func (a *app) handleSaveLink(w http.ResponseWriter, r *http.Request) {
-	p, ok := a.draftFor(w, r)
+	p, ok := a.editableDraft(w, r)
 	if !ok {
 		return
 	}
