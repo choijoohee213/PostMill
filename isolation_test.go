@@ -52,7 +52,7 @@ func TestIsolation(t *testing.T) {
 	})
 
 	t.Run("남의 글은 수정되지 않는다", func(t *testing.T) {
-		if err := db.UpdateBody(ctx, me, herID, "해킹된 본문", "", ""); err != nil {
+		if err := db.UpdateBody(ctx, me, herID, "해킹된 본문", "", "", ""); err != nil {
 			t.Fatal(err)
 		}
 		her, err := db.GetPost(ctx, sister, herID)

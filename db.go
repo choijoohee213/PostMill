@@ -41,6 +41,7 @@ type Post struct {
 	Body             string
 	Detail           string
 	Detail2          string
+	Topic            string // 스레드 주제(topic_tag). 비어 있으면 붙이지 않는다
 	Status           string
 	ErrorMsg         string
 	ThreadPermalink  string
@@ -74,7 +75,7 @@ func Open(ctx context.Context, databaseURL string) (*DB, error) {
 
 func (db *DB) Close() { db.pool.Close() }
 
-const postColumns = `id, user_id, affiliate, product_url, affiliate_link, memo, product_name, body, detail, detail2,
+const postColumns = `id, user_id, affiliate, product_url, affiliate_link, memo, product_name, body, detail, detail2, topic,
 	status, error_msg, thread_permalink,
 	thread_post_id, replies_done, last_reply_id, publish_started_at,
 	manual, link_auto, taca_item_id,
@@ -83,7 +84,7 @@ const postColumns = `id, user_id, affiliate, product_url, affiliate_link, memo, 
 func scanPost(row pgx.Row) (*Post, error) {
 	var p Post
 	err := row.Scan(&p.ID, &p.UserID, &p.Affiliate, &p.ProductURL, &p.AffiliateLink, &p.Memo,
-		&p.ProductName, &p.Body, &p.Detail, &p.Detail2, &p.Status, &p.ErrorMsg, &p.ThreadPermalink,
+		&p.ProductName, &p.Body, &p.Detail, &p.Detail2, &p.Topic, &p.Status, &p.ErrorMsg, &p.ThreadPermalink,
 		&p.ThreadPostID, &p.RepliesDone, &p.LastReplyID, &p.PublishStartedAt,
 		&p.Manual, &p.LinkAuto, &p.TacaItemID,
 		&p.CreatedAt, &p.PublishedAt)
@@ -207,12 +208,33 @@ func (db *DB) ResetForRegenerate(ctx context.Context, userID string, id int64) e
 	return err
 }
 
-// UpdateBody는 편집 화면에서 수정한 본문과 디테일을 저장한다.
-func (db *DB) UpdateBody(ctx context.Context, userID string, id int64, body, detail, detail2 string) error {
+// UpdateBody는 편집 화면에서 수정한 본문과 디테일, 주제를 저장한다.
+func (db *DB) UpdateBody(ctx context.Context, userID string, id int64, body, detail, detail2, topic string) error {
 	_, err := db.pool.Exec(ctx,
-		`UPDATE posts SET body = $3, detail = $4, detail2 = $5 WHERE id = $1 AND user_id = $2`,
-		id, userID, body, detail, detail2)
+		`UPDATE posts SET body = $3, detail = $4, detail2 = $5, topic = $6 WHERE id = $1 AND user_id = $2`,
+		id, userID, body, detail, detail2, topic)
 	return err
+}
+
+// RecentTopics는 최근에 쓴 주제를 새로 쓴 순서로 돌려준다.
+// 같은 주제를 매번 다시 타이핑하지 않게 편집 화면에서 골라 쓴다.
+func (db *DB) RecentTopics(ctx context.Context, userID string, limit int) ([]string, error) {
+	rows, err := db.pool.Query(ctx,
+		`SELECT topic FROM posts WHERE user_id = $1 AND topic <> ''
+		 GROUP BY topic ORDER BY max(id) DESC LIMIT $2`, userID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var topics []string
+	for rows.Next() {
+		var t string
+		if err := rows.Scan(&t); err != nil {
+			return nil, err
+		}
+		topics = append(topics, t)
+	}
+	return topics, rows.Err()
 }
 
 // SetStatus는 상태만 바꾼다 (보류, 재생성 등).
