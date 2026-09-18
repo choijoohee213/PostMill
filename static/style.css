@@ -1384,3 +1384,40 @@ main {
   vertical-align: -2px;
   margin-right: 4px;
 }
+
+/* 주제(topic_tag). Threads처럼 이름 옆에 "› 주제"로 붙는다. */
+.topic {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.topic-sep {
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+}
+.topic input {
+  width: 100%;
+  min-width: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  padding: 2px 0;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text, inherit);
+}
+.topic input::placeholder {
+  color: var(--muted);
+}
+.topic input:focus {
+  outline: none;
+  box-shadow: 0 1px 0 var(--accent-line);
+}
+.topic-tag {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+}

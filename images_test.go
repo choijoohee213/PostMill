@@ -109,7 +109,7 @@ func (rec *imageRecorder) server(t *testing.T) *Threads {
 
 func TestPublishImages_한_장이면_IMAGE로_올린다(t *testing.T) {
 	rec := &imageRecorder{}
-	id, err := rec.server(t).PublishImages(context.Background(), "tok", "본문", []string{"https://x/media/a"})
+	id, err := rec.server(t).PublishImages(context.Background(), "tok", "본문", "", []string{"https://x/media/a"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestPublishImages_한_장이면_IMAGE로_올린다(t *testing.T) {
 func TestPublishImages_여러_장이면_캐러셀로_묶는다(t *testing.T) {
 	rec := &imageRecorder{}
 	urls := []string{"https://x/media/a", "https://x/media/b", "https://x/media/c"}
-	id, err := rec.server(t).PublishImages(context.Background(), "tok", "본문", urls)
+	id, err := rec.server(t).PublishImages(context.Background(), "tok", "본문", "", urls)
 	if err != nil {
 		t.Fatal(err)
 	}

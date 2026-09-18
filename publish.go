@@ -65,9 +65,9 @@ func (a *app) runPublish(p *Post, token, body, link string) {
 			for i, im := range imgs {
 				urls[i] = a.mediaURL(im.Token)
 			}
-			id, err = a.threads.PublishImages(ctx, token, body, urls)
+			id, err = a.threads.PublishImages(ctx, token, body, p.Topic, urls)
 		} else {
-			id, err = a.threads.PublishText(ctx, token, body, "")
+			id, err = a.threads.PublishText(ctx, token, body, "", p.Topic)
 		}
 		if err != nil {
 			// 본문조차 올라가지 않았으므로 되돌려도 안전하다.
@@ -111,7 +111,7 @@ func (a *app) runPublish(p *Post, token, body, link string) {
 			continue
 		}
 
-		replyID, err := a.threads.PublishText(ctx, token, text, parent)
+		replyID, err := a.threads.PublishText(ctx, token, text, parent, "")
 		if err != nil {
 			fail(fmt.Sprintf("답글 %d을 올리지 못했습니다. 이어서 게시를 눌러보세요.", i+1), err)
 			return

@@ -76,3 +76,6 @@ ALTER TABLE posts ADD COLUMN IF NOT EXISTS taca_item_id bigint NOT NULL DEFAULT 
 -- 사용자가 상품을 직접 고른 초안인지. 예전에는 메모 유무로 구분했지만
 -- 메모 없이도 만들 수 있게 되어 따로 둔다. 자동 생성 버튼이 지우지 않는다.
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS manual boolean NOT NULL DEFAULT false;
+
+-- 스레드 주제(topic_tag). 글 하나에 하나만 붙고 본문에만 달린다.
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS topic text NOT NULL DEFAULT '';

@@ -96,7 +96,7 @@ type fakeOpts struct {
 func TestPublishText_컨테이너를_만들고_발행한다(t *testing.T) {
 	th, calls := fakeThreads(t, fakeOpts{})
 
-	id, err := th.PublishText(context.Background(), "tok", "본문 텍스트", "")
+	id, err := th.PublishText(context.Background(), "tok", "본문 텍스트", "", "")
 	if err != nil {
 		t.Fatalf("실패: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestPublishText_컨테이너를_만들고_발행한다(t *testing.T) {
 func TestPublishText_답글은_부모를_가리킨다(t *testing.T) {
 	th, calls := fakeThreads(t, fakeOpts{})
 
-	if _, err := th.PublishText(context.Background(), "tok", "답글", "parent-9"); err != nil {
+	if _, err := th.PublishText(context.Background(), "tok", "답글", "parent-9", ""); err != nil {
 		t.Fatalf("실패: %v", err)
 	}
 	if c := (*calls)[0]; c.ReplyTo != "parent-9" {
@@ -128,7 +128,7 @@ func TestPublishText_답글은_부모를_가리킨다(t *testing.T) {
 func TestPublishText_컨테이너_생성이_실패하면_발행하지_않는다(t *testing.T) {
 	th, calls := fakeThreads(t, fakeOpts{bodyFails: true})
 
-	if _, err := th.PublishText(context.Background(), "tok", "본문", ""); err == nil {
+	if _, err := th.PublishText(context.Background(), "tok", "본문", "", ""); err == nil {
 		t.Fatal("에러여야 한다")
 	}
 	for _, c := range *calls {
@@ -148,7 +148,7 @@ func TestPublishText_컨테이너가_준비될_때까지_기다린다(t *testing
 		containerStatuses: []string{"IN_PROGRESS", "IN_PROGRESS", "FINISHED"},
 	})
 
-	if _, err := th.PublishText(context.Background(), "tok", "본문", ""); err != nil {
+	if _, err := th.PublishText(context.Background(), "tok", "본문", "", ""); err != nil {
 		t.Fatalf("기다린 뒤 성공했어야 한다: %v", err)
 	}
 	publishes := 0
@@ -172,7 +172,7 @@ func TestPublishText_컨테이너가_ERROR면_사유를_알린다(t *testing.T) 
 		containerError:    "text too long",
 	})
 
-	_, err := th.PublishText(context.Background(), "tok", "본문", "")
+	_, err := th.PublishText(context.Background(), "tok", "본문", "", "")
 	if err == nil || !strings.Contains(err.Error(), "text too long") {
 		t.Fatalf("사유가 담기지 않았다: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestPublishText_준비되지_않으면_시간초과로_멈춘다(t *testing
 
 	th, _ := fakeThreads(t, fakeOpts{containerStatuses: []string{"IN_PROGRESS"}})
 
-	if _, err := th.PublishText(context.Background(), "tok", "본문", ""); err == nil {
+	if _, err := th.PublishText(context.Background(), "tok", "본문", "", ""); err == nil {
 		t.Fatal("시간 초과로 에러여야 한다")
 	}
 }
@@ -236,7 +236,7 @@ func TestPublishText_일시적인_오류는_다시_시도한다(t *testing.T) {
 
 	th, tries := retryServer(t, 2, http.StatusInternalServerError)
 
-	id, err := th.PublishText(context.Background(), "tok", "답글", "post-0")
+	id, err := th.PublishText(context.Background(), "tok", "답글", "post-0", "")
 	if err != nil {
 		t.Fatalf("다시 시도해서 올라가야 한다: %v", err)
 	}
@@ -255,7 +255,7 @@ func TestPublishText_잘못된_요청은_다시_시도하지_않는다(t *testin
 
 	th, tries := retryServer(t, 99, http.StatusBadRequest)
 
-	if _, err := th.PublishText(context.Background(), "tok", "답글", "post-0"); err == nil {
+	if _, err := th.PublishText(context.Background(), "tok", "답글", "post-0", ""); err == nil {
 		t.Fatal("에러여야 한다")
 	}
 	if *tries != 1 {

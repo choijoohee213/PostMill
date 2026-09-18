@@ -95,3 +95,24 @@ func BodyRoom(affiliate string) (int, error) {
 	}
 	return room, nil
 }
+
+// 주제(topic_tag)는 글 하나에 하나만 붙는다. 50자까지이고
+// 마침표와 &는 쓸 수 없다 (Threads API 규칙).
+const TopicMaxChars = 50
+
+// NormalizeTopic은 입력한 주제를 Threads가 받는 모양으로 다듬는다.
+// 비어 있으면 주제 없이 올린다는 뜻이라 오류가 아니다.
+func NormalizeTopic(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	s = strings.TrimSpace(strings.TrimPrefix(s, "#"))
+	if s == "" {
+		return "", nil
+	}
+	if strings.ContainsAny(s, ".&") {
+		return "", fmt.Errorf("주제에는 마침표와 &를 쓸 수 없어요")
+	}
+	if CharCount(s) > TopicMaxChars {
+		return "", fmt.Errorf("주제는 %d자까지예요", TopicMaxChars)
+	}
+	return s, nil
+}

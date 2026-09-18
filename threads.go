@@ -134,13 +134,17 @@ func (t *Threads) post(ctx context.Context, path string, form url.Values) (strin
 
 // createContainer는 발행할 내용을 담은 컨테이너를 만든다.
 // replyTo가 비어 있지 않으면 그 글에 대한 답글이 된다.
-func (t *Threads) createContainer(ctx context.Context, token, text, replyTo string) (string, error) {
+// topic이 있으면 글의 주제로 붙는다 (답글에는 붙지 않는다).
+func (t *Threads) createContainer(ctx context.Context, token, text, replyTo, topic string) (string, error) {
 	form := url.Values{}
 	form.Set("media_type", "TEXT")
 	form.Set("text", text)
 	form.Set("access_token", token)
 	if replyTo != "" {
 		form.Set("reply_to_id", replyTo)
+	}
+	if topic != "" && replyTo == "" {
+		form.Set("topic_tag", topic)
 	}
 	// 컨테이너는 발행하지 않으면 사라지므로 다시 만들어도 안전하다.
 	return retryTransient(ctx, func() (string, error) {
@@ -233,11 +237,12 @@ func (t *Threads) containerStatus(ctx context.Context, token, containerID string
 
 // PublishText는 컨테이너를 만들고, 준비될 때까지 기다린 뒤 발행한다.
 // replyTo가 비어 있지 않으면 그 글에 대한 답글이 된다.
+// topic은 본문 글의 주제다. 답글에는 주제를 붙일 수 없어 무시된다.
 //
 // 사슬을 잇는 일은 이 함수가 하지 않는다. 각 단계 결과를 DB에 남겨야
 // 중간에 끊겨도 이어서 마칠 수 있으므로, 순서는 앱이 관리한다.
-func (t *Threads) PublishText(ctx context.Context, token, text, replyTo string) (string, error) {
-	containerID, err := t.createContainer(ctx, token, text, replyTo)
+func (t *Threads) PublishText(ctx context.Context, token, text, replyTo, topic string) (string, error) {
+	containerID, err := t.createContainer(ctx, token, text, replyTo, topic)
 	if err != nil {
 		return "", err
 	}
@@ -251,10 +256,13 @@ func (t *Threads) PublishText(ctx context.Context, token, text, replyTo string) 
 //
 // 한 장이면 IMAGE, 여러 장이면 CAROUSEL이다. 캐러셀은 사진마다 항목
 // 컨테이너를 먼저 만들고, 그 id들을 묶은 컨테이너를 발행한다.
-func (t *Threads) PublishImages(ctx context.Context, token, text string, imageURLs []string) (string, error) {
+func (t *Threads) PublishImages(ctx context.Context, token, text, topic string, imageURLs []string) (string, error) {
 	form := url.Values{}
 	form.Set("text", text)
 	form.Set("access_token", token)
+	if topic != "" {
+		form.Set("topic_tag", topic)
+	}
 
 	if len(imageURLs) == 1 {
 		form.Set("media_type", "IMAGE")

@@ -307,6 +307,8 @@ type editData struct {
 	Used        int
 	DetailUsed  int
 	Detail2Used int
+	TopicLimit  int
+	Topics      []string // 최근에 쓴 주제
 	Handle      string
 	Error       string
 	Images      []PostImage
@@ -363,6 +365,12 @@ func (a *app) renderEdit(w http.ResponseWriter, r *http.Request, p *Post, errMsg
 		log.Printf("사진 목록 조회 실패 (id=%d): %v", p.ID, err)
 	}
 
+	// 주제 목록은 없어도 글을 쓸 수 있으므로 실패해도 넘어간다.
+	topics, err := a.db.RecentTopics(r.Context(), p.UserID, 8)
+	if err != nil {
+		log.Printf("최근 주제 조회 실패: %v", err)
+	}
+
 	a.render(w, "edit.html", editData{
 		Post:        p,
 		Images:      images,
@@ -376,6 +384,8 @@ func (a *app) renderEdit(w http.ResponseWriter, r *http.Request, p *Post, errMsg
 		Used:        CharCount(strings.TrimSpace(p.Body)),
 		DetailUsed:  CharCount(strings.TrimSpace(p.Detail)),
 		Detail2Used: CharCount(strings.TrimSpace(p.Detail2)),
+		TopicLimit:  TopicMaxChars,
+		Topics:      topics,
 		Handle:      handle,
 		Error:       errMsg,
 	})
@@ -418,13 +428,20 @@ func (a *app) handleDraftSave(w http.ResponseWriter, r *http.Request) {
 	body := strings.TrimSpace(r.FormValue("body"))
 	detail := strings.TrimSpace(r.FormValue("detail"))
 	detail2 := strings.TrimSpace(r.FormValue("detail2"))
+	// 주제는 Threads 규칙에 맞지 않으면 게시할 때 거절당하므로 여기서 막는다.
+	topic, err := NormalizeTopic(r.FormValue("topic"))
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		a.renderEdit(w, r, p, err.Error())
+		return
+	}
 	// 저장 자체는 막지 않는다. 게시 가능한지는 미리보기와 카운터가 알려준다.
-	if err := a.db.UpdateBody(r.Context(), p.UserID, p.ID, body, detail, detail2); err != nil {
+	if err := a.db.UpdateBody(r.Context(), p.UserID, p.ID, body, detail, detail2, topic); err != nil {
 		log.Printf("본문 저장 실패 (id=%d): %v", p.ID, err)
 		a.renderEdit(w, r, p, "저장하지 못했습니다.")
 		return
 	}
-	p.Body, p.Detail, p.Detail2 = body, detail, detail2
+	p.Body, p.Detail, p.Detail2, p.Topic = body, detail, detail2, topic
 
 	http.Redirect(w, r, fmt.Sprintf("/drafts/%d", p.ID), http.StatusSeeOther)
 }
