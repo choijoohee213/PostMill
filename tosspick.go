@@ -12,13 +12,6 @@ import (
 	"time"
 )
 
-// app_state에 저장하는 토스 토큰 키. 토큰은 1년 가까이 유효하고
-// 과도한 재발급은 제한되므로, 재시작해도 다시 받지 않게 DB에 둔다.
-const (
-	stateTossToken     = "toss_access_token"
-	stateTossExpiresAt = "toss_token_expires_at"
-)
-
 const (
 	// tossTokenMargin 안에 만료되는 토큰은 미리 새로 받는다.
 	tossTokenMargin = 7 * 24 * time.Hour
@@ -69,52 +62,16 @@ type cachedProducts struct {
 	items []TossProduct
 }
 
-// tossToken은 저장된 토큰을 쓰고, 없거나 곧 만료되면 새로 받는다.
-// tossState.mu를 잡은 채로 부른다.
-func (a *app) tossToken(ctx context.Context) (string, error) {
-	token, ok, err := a.db.GetState(ctx, stateTossToken)
-	if err != nil {
-		return "", err
-	}
-	if ok {
-		if raw, found, _ := a.db.GetState(ctx, stateTossExpiresAt); found {
-			if exp, err := time.Parse(time.RFC3339, raw); err == nil && time.Until(exp) > tossTokenMargin {
-				return token, nil
-			}
-		}
-	}
-
-	token, exp, err := a.toss.IssueToken(ctx)
-	if err != nil {
-		return "", err
-	}
-	if err := a.db.SetState(ctx, stateTossToken, token); err != nil {
-		return "", err
-	}
-	if err := a.db.SetState(ctx, stateTossExpiresAt, exp.Format(time.RFC3339)); err != nil {
-		return "", err
-	}
-	return token, nil
-}
-
-// forgetTossToken은 401을 받은 토큰을 버린다. 다음 시도에서 새로 받는다.
-func (a *app) forgetTossToken(ctx context.Context, err error) {
-	var te *tossError
-	if errors.As(err, &te) && te.HTTPStatus == 401 {
-		a.db.SetState(ctx, stateTossExpiresAt, "")
-	}
-}
-
 // cachedList는 받아 둔 목록이 ttl 안이면 다시 쓰고, 아니면 fetch로 새로 받는다.
 // tossState.mu를 잡은 채로 부른다.
-func (a *app) cachedList(ctx context.Context, key string, ttl time.Duration, fetch func() ([]TossProduct, error)) ([]TossProduct, error) {
+func (a *app) cachedList(ctx context.Context, c *tossConn, key string, ttl time.Duration, fetch func() ([]TossProduct, error)) ([]TossProduct, error) {
 	s := &a.tossState
-	if c, ok := s.lists[key]; ok && time.Since(c.at) < ttl {
-		return c.items, nil
+	if hit, ok := s.lists[key]; ok && time.Since(hit.at) < ttl {
+		return hit.items, nil
 	}
 	items, err := fetch()
 	if err != nil {
-		a.forgetTossToken(ctx, err)
+		a.forget(ctx, c, err)
 		return nil, err
 	}
 	if s.lists == nil {
@@ -124,50 +81,46 @@ func (a *app) cachedList(ctx context.Context, key string, ttl time.Duration, fet
 	return items, nil
 }
 
-func (a *app) bestList(ctx context.Context, token string) ([]TossProduct, error) {
-	return a.cachedList(ctx, TossSourceBest, tossListTTL, func() ([]TossProduct, error) {
-		return a.toss.BestSelling(ctx, token, tossBestSize)
+func (a *app) bestList(ctx context.Context, c *tossConn) ([]TossProduct, error) {
+	return a.cachedList(ctx, c, TossSourceBest, tossListTTL, func() ([]TossProduct, error) {
+		return c.api.BestSelling(ctx, c.token, tossBestSize)
 	})
 }
 
-func (a *app) categoryList(ctx context.Context, token string, id int64) ([]TossProduct, error) {
-	return a.cachedList(ctx, tossSourceCat+strconv.FormatInt(id, 10), tossCategoryTTL, func() ([]TossProduct, error) {
-		return a.toss.CategoryBest(ctx, token, id, tossCategorySize)
+func (a *app) categoryList(ctx context.Context, c *tossConn, id int64) ([]TossProduct, error) {
+	return a.cachedList(ctx, c, tossSourceCat+strconv.FormatInt(id, 10), tossCategoryTTL, func() ([]TossProduct, error) {
+		return c.api.CategoryBest(ctx, c.token, id, tossCategorySize)
 	})
 }
 
 // tossProducts는 source에 맞는 상품 목록을 돌려준다. 모르는 source는 베스트로 본다.
-func (a *app) tossProducts(ctx context.Context, userID, source string) (string, []TossProduct, error) {
+func (a *app) tossProducts(ctx context.Context, c *tossConn, userID, source string) ([]TossProduct, error) {
 	a.tossState.mu.Lock()
 	defer a.tossState.mu.Unlock()
 
-	token, err := a.tossToken(ctx)
-	if err != nil {
-		return "", nil, err
-	}
-
+	var err error
 	var items []TossProduct
 	switch {
 	case source == TossSourceDeal:
-		items, err = a.cachedList(ctx, TossSourceDeal, tossListTTL, func() ([]TossProduct, error) {
-			return a.toss.TodayDeals(ctx, token, tossDealSize)
+		items, err = a.cachedList(ctx, c, TossSourceDeal, tossListTTL, func() ([]TossProduct, error) {
+			return c.api.TodayDeals(ctx, c.token, tossDealSize)
 		})
 	case source == TossSourceMine:
-		items, err = a.mineProducts(ctx, token, userID)
+		items, err = a.mineProducts(ctx, c, userID)
 	case strings.HasPrefix(source, tossSourceCat):
 		id, perr := strconv.ParseInt(strings.TrimPrefix(source, tossSourceCat), 10, 64)
 		if perr != nil {
-			items, err = a.bestList(ctx, token)
+			items, err = a.bestList(ctx, c)
 		} else {
-			items, err = a.categoryListOrParent(ctx, token, id)
+			items, err = a.categoryListOrParent(ctx, c, id)
 		}
 	default:
-		items, err = a.bestList(ctx, token)
+		items, err = a.bestList(ctx, c)
 	}
 	if err != nil {
-		return "", nil, err
+		return nil, err
 	}
-	return token, items, nil
+	return items, nil
 }
 
 // mineProducts는 최근 내 링크로 팔린 상품들의 카테고리에서 잘 팔리는 상품을 모은다.
@@ -175,9 +128,9 @@ func (a *app) tossProducts(ctx context.Context, userID, source string) (string, 
 // 실적에는 카테고리가 없어 상품 상세로 알아낸다. 가장 구체적인 카테고리를
 // 판매 수량으로 세어 많이 팔린 순으로 몇 개만 본다. 판매가 아직 없으면
 // 기준이 없으므로 베스트에서 고른다.
-func (a *app) mineProducts(ctx context.Context, token, userID string) ([]TossProduct, error) {
+func (a *app) mineProducts(ctx context.Context, c *tossConn, userID string) ([]TossProduct, error) {
 	to := time.Now().In(kst)
-	perf, err := a.accountPerformance(ctx, token, userID, to.AddDate(0, 0, -(tossMineDays-1)), to)
+	perf, err := a.accountPerformance(ctx, c, userID, to.AddDate(0, 0, -(tossMineDays-1)), to)
 	if err != nil {
 		return nil, err
 	}
@@ -194,12 +147,12 @@ func (a *app) mineProducts(ctx context.Context, token, userID string) ([]TossPro
 		sold[it.ProductID] += it.SoldQuantity
 	}
 	if len(ids) == 0 {
-		return a.bestList(ctx, token)
+		return a.bestList(ctx, c)
 	}
 
-	details, _, err := a.toss.ProductDetails(ctx, token, ids)
+	details, _, err := c.api.ProductDetails(ctx, c.token, ids)
 	if err != nil {
-		a.forgetTossToken(ctx, err)
+		a.forget(ctx, c, err)
 		return nil, err
 	}
 	weight := map[int64]int64{}
@@ -222,13 +175,13 @@ func (a *app) mineProducts(ctx context.Context, token, userID string) ([]TossPro
 		cats = cats[:tossMineCategories]
 	}
 	if len(cats) == 0 {
-		return a.bestList(ctx, token)
+		return a.bestList(ctx, c)
 	}
 
 	// 카테고리별 목록을 번갈아 섞어 한 카테고리만 앞에 몰리지 않게 한다.
 	var lists [][]TossProduct
 	for _, id := range cats {
-		items, err := a.categoryList(ctx, token, id)
+		items, err := a.categoryList(ctx, c, id)
 		if err != nil {
 			return nil, err
 		}
@@ -248,7 +201,7 @@ func (a *app) mineProducts(ctx context.Context, token, userID string) ([]TossPro
 		}
 	}
 	if len(mixed) == 0 {
-		return a.bestList(ctx, token)
+		return a.bestList(ctx, c)
 	}
 	return mixed, nil
 }
@@ -263,14 +216,14 @@ type categoryNode struct {
 // loadCategories는 카테고리 트리를 하루에 한 번 받아 둔다. 부모 관계도 함께 기억해
 // 랭킹이 비어 있는 카테고리에서 한 단계씩 올라갈 수 있게 한다.
 // tossState.mu를 잡은 채로 부른다.
-func (a *app) loadCategories(ctx context.Context, token string) error {
+func (a *app) loadCategories(ctx context.Context, c *tossConn) error {
 	s := &a.tossState
 	if s.categories != nil && time.Since(s.categoriesAt) < tossCategoryTTL {
 		return nil
 	}
-	cats, err := a.toss.Categories(ctx, token)
+	cats, err := c.api.Categories(ctx, c.token)
 	if err != nil {
-		a.forgetTossToken(ctx, err)
+		a.forget(ctx, c, err)
 		return err
 	}
 	parents := map[int64]int64{}
@@ -289,18 +242,14 @@ func (a *app) loadCategories(ctx context.Context, token string) error {
 }
 
 // tossCategoryTree는 화면에 넘길 카테고리 트리다. 토스가 응답하지 않으면 비운다.
-func (a *app) tossCategoryTree(ctx context.Context) []categoryNode {
-	if a.toss == nil {
+func (a *app) tossCategoryTree(ctx context.Context, c *tossConn) []categoryNode {
+	if c == nil {
 		return nil
 	}
 	a.tossState.mu.Lock()
 	defer a.tossState.mu.Unlock()
 
-	token, err := a.tossToken(ctx)
-	if err == nil {
-		err = a.loadCategories(ctx, token)
-	}
-	if err != nil {
+	if err := a.loadCategories(ctx, c); err != nil {
 		log.Printf("토스 카테고리 조회 실패: %v", err)
 		return nil
 	}
@@ -318,13 +267,13 @@ func (a *app) tossCategoryTree(ctx context.Context) []categoryNode {
 // categoryListOrParent는 카테고리 베스트를 받고, 랭킹이 비어 있으면 한 단계씩 위로
 // 올라가 받는다. 토스 문서에 랭킹 데이터가 없는 카테고리도 있다고 되어 있다.
 // 끝까지 비면 베스트를 쓴다. tossState.mu를 잡은 채로 부른다.
-func (a *app) categoryListOrParent(ctx context.Context, token string, id int64) ([]TossProduct, error) {
-	if err := a.loadCategories(ctx, token); err != nil {
+func (a *app) categoryListOrParent(ctx context.Context, c *tossConn, id int64) ([]TossProduct, error) {
+	if err := a.loadCategories(ctx, c); err != nil {
 		// 트리를 못 받으면 올라갈 수 없을 뿐, 고른 카테고리는 그대로 조회한다.
 		log.Printf("토스 카테고리 조회 실패: %v", err)
 	}
 	for seen := 0; id != 0 && seen < 6; seen++ {
-		items, err := a.categoryList(ctx, token, id)
+		items, err := a.categoryList(ctx, c, id)
 		if err != nil {
 			return nil, err
 		}
@@ -333,7 +282,7 @@ func (a *app) categoryListOrParent(ctx context.Context, token string, id int64) 
 		}
 		id = a.tossState.categoryParents[id]
 	}
-	return a.bestList(ctx, token)
+	return a.bestList(ctx, c)
 }
 
 // tossCandidates는 고를 만한 상품을 추린다.
@@ -378,7 +327,7 @@ func tossSubTag(userID string) string { return "u-" + userID }
 
 // ensureSubTag는 사용자의 subTag를 등록한다. 한 번 등록한 것은 서버가
 // 떠 있는 동안 기억해 다시 부르지 않는다. 다시 불러도 해는 없다.
-func (a *app) ensureSubTag(ctx context.Context, token, userID string) (string, error) {
+func (a *app) ensureSubTag(ctx context.Context, c *tossConn, userID string) (string, error) {
 	tag := tossSubTag(userID)
 	a.tossState.mu.Lock()
 	done := a.tossState.subTags[tag]
@@ -391,7 +340,7 @@ func (a *app) ensureSubTag(ctx context.Context, token, userID string) (string, e
 	if u, ok, err := a.db.GetThreadsUser(ctx, userID); err == nil && ok && u.Username != "" {
 		label = "@" + u.Username
 	}
-	if err := a.toss.EnsureSubTag(ctx, token, tag, label); err != nil {
+	if err := c.api.EnsureSubTag(ctx, c.token, tag, label); err != nil {
 		return "", err
 	}
 
@@ -416,7 +365,11 @@ func (a *app) suggestToss(ctx context.Context, userID, source string, avoid []st
 		return drafts, fails
 	}
 
-	token, products, err := a.tossProducts(ctx, userID, source)
+	c, err := a.tossConnFor(ctx, userID)
+	if err != nil {
+		return failAll(err)
+	}
+	products, err := a.tossProducts(ctx, c, userID, source)
 	if err != nil {
 		return failAll(err)
 	}
@@ -434,9 +387,9 @@ func (a *app) suggestToss(ctx context.Context, userID, source string, avoid []st
 		return failAll(err)
 	}
 
-	tag, err := a.ensureSubTag(ctx, token, userID)
+	tag, err := a.ensureSubTag(ctx, c, userID)
 	if err != nil {
-		a.forgetTossToken(ctx, err)
+		a.forget(ctx, c, err)
 		return failAll(err)
 	}
 	for i, d := range written {
@@ -444,10 +397,10 @@ func (a *app) suggestToss(ctx context.Context, userID, source string, avoid []st
 			continue
 		}
 		picked := candidates[picks[i]]
-		link, err := a.toss.CreateLink(ctx, token, picked.TacaItemID, tag)
+		link, err := c.api.CreateLink(ctx, c.token, picked.TacaItemID, tag)
 		if err != nil {
 			// 발급이 막힌 상품은 그 장만 실패로 둔다.
-			a.forgetTossToken(ctx, err)
+			a.forget(ctx, c, err)
 			fails[i] = err
 			continue
 		}
@@ -470,13 +423,6 @@ func (a *app) suggestToss(ctx context.Context, userID, source string, avoid []st
 	return drafts, fails
 }
 
-// lockedTossToken은 목록 조회와 겹치지 않게 토큰만 받는다.
-func (a *app) lockedTossToken(ctx context.Context) (string, error) {
-	a.tossState.mu.Lock()
-	defer a.tossState.mu.Unlock()
-	return a.tossToken(ctx)
-}
-
 // tossUnavailableReason은 자동으로 고른 토스 상품을 지금 살 수 없으면 그 이유를 돌려준다.
 //
 // 초안을 만들고 게시하기까지 시간이 지나 그사이 품절되거나 판매가 끝날 수 있다.
@@ -490,17 +436,18 @@ func (a *app) tossUnavailableReason(ctx context.Context, p *Post) string {
 		return "특가가 끝나서 게시를 멈췄어요. 본문이 마감을 말하고 있어요. 재생성해주세요."
 	}
 	// 사용자가 링크를 직접 바꿨으면 그 링크가 어느 상품인지 알 수 없다.
-	if a.toss == nil || p.Affiliate != AffiliateToss || !p.LinkAuto || p.TacaItemID == 0 {
+	if p.Affiliate != AffiliateToss || !p.LinkAuto || p.TacaItemID == 0 {
 		return ""
 	}
-	token, err := a.lockedTossToken(ctx)
+	// 글을 쓴 사람의 키로 확인한다. 링크도 그 키로 발급됐다.
+	c, err := a.tossConnFor(ctx, p.UserID)
 	if err != nil {
 		log.Printf("게시 전 상품 확인 생략 (id=%d): %v", p.ID, err)
 		return ""
 	}
-	found, notFound, err := a.toss.ProductDetails(ctx, token, []int64{p.TacaItemID})
+	found, notFound, err := c.api.ProductDetails(ctx, c.token, []int64{p.TacaItemID})
 	if err != nil {
-		a.forgetTossToken(ctx, err)
+		a.forget(ctx, c, err)
 		log.Printf("게시 전 상품 확인 생략 (id=%d): %v", p.ID, err)
 		return ""
 	}

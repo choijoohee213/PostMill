@@ -168,6 +168,7 @@ func (a *app) renderList(w http.ResponseWriter, r *http.Request, extra listExtra
 		query = strings.TrimSpace(r.URL.Query().Get("q"))
 	}
 
+	tossAPI, _ := a.tossAPIFor(r.Context(), a.session.userID(r))
 	posts, err := a.db.ListByStatus(r.Context(), a.session.userID(r), query, current.Statuses...)
 	if err != nil {
 		log.Printf("목록 조회 실패: %v", err)
@@ -219,7 +220,7 @@ func (a *app) renderList(w http.ResponseWriter, r *http.Request, extra listExtra
 		Images:     images,
 		Error:      extra.Error,
 		Form:       extra.Form,
-		TossAPI:    a.toss != nil,
+		TossAPI:    tossAPI != nil,
 		Areas:      coupangAreas,
 		Categories: a.categoriesFor(r, current.Key),
 	})
@@ -568,5 +569,9 @@ func (a *app) categoriesFor(r *http.Request, tab string) []categoryNode {
 	if tab != "review" {
 		return nil
 	}
-	return a.tossCategoryTree(r.Context())
+	c, err := a.tossConnFor(r.Context(), a.session.userID(r))
+	if err != nil {
+		return nil
+	}
+	return a.tossCategoryTree(r.Context(), c)
 }

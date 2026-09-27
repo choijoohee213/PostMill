@@ -318,8 +318,7 @@ func TestSuggest_토스는_고른_상품의_쉐어링크까지_넣는다(t *test
 	}}
 	a := &app{db: db, gemini: tossGemini(t), toss: f.client(t)}
 	// 다른 테스트가 남긴 토큰을 쓰지 않게 비운다.
-	db.SetState(ctx, stateTossToken, "")
-	db.SetState(ctx, stateTossExpiresAt, "")
+	db.ClearTossToken(ctx, "pub-uuid")
 
 	id, _ := db.CreateDraft(ctx, user, AffiliateToss, "", "", "")
 	t.Cleanup(func() { db.DeletePost(ctx, user, id) })
@@ -672,8 +671,10 @@ func TestAccountStats_주인은_전체에서_다른_계정을_뺀다(t *testing.
 	}
 	a := &app{db: db, toss: f.client(t)}
 	from := time.Date(2026, 9, 1, 0, 0, 0, 0, kst)
+	// 공용 키로 부르는 경우다. 여러 명이 한 거래처를 나눠 쓴다.
+	c := &tossConn{api: a.toss, token: "tok"}
 
-	perf, settled, err := a.accountStats(ctx, "tok", "owner", from, from, "2026-09")
+	perf, settled, err := a.accountStats(ctx, c, "owner", from, from, "2026-09")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -684,7 +685,7 @@ func TestAccountStats_주인은_전체에서_다른_계정을_뺀다(t *testing.
 		t.Fatalf("주인 상품=%+v, 동생 몫 상품은 빠져야 한다", perf.Items)
 	}
 
-	sister, settled, err := a.accountStats(ctx, "tok", "sister", from, from, "2026-09")
+	sister, settled, err := a.accountStats(ctx, c, "sister", from, from, "2026-09")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -694,7 +695,7 @@ func TestAccountStats_주인은_전체에서_다른_계정을_뺀다(t *testing.
 
 	// subTag를 아직 등록하지 않은 계정은 토스에 묻지 않고 0이다 (묻으면 거절된다).
 	before := len(f.perfQueries)
-	none, settled, err := a.accountStats(ctx, "tok", "newbie", from, from, "2026-09")
+	none, settled, err := a.accountStats(ctx, c, "newbie", from, from, "2026-09")
 	if err != nil || none.Summary.SoldQuantity != 0 || settled != 0 || len(f.perfQueries) != before {
 		t.Fatalf("미등록 계정 실적=%+v 정산=%d err=%v 조회=%d번", none.Summary, settled, err, len(f.perfQueries)-before)
 	}
@@ -854,5 +855,94 @@ func TestResumeStuck_끊긴_게시를_이어서_마치고_오래되면_정리한
 	p, _ = a.db.GetPost(ctx, user, never.ID)
 	if p.Status != StatusFailed {
 		t.Fatalf("상태=%s, failed여야 한다", p.Status)
+	}
+}
+
+// 자기 키를 등록한 사용자는 그 거래처가 통째로 자기 것이다. 남의 몫을 뺄 일도,
+// subTag가 등록됐는지 볼 일도 없다.
+func TestAccountStats_자기_키는_거래처_전체가_제_몫이다(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+
+	f := &fakeTossServer{
+		subTagList: []string{"u-other"},
+		perfBySubTag: map[string]string{
+			"": `{"summary":{"clickCount":100,"soldQuantity":10,"expectedCommissionAmount":1000},"items":[
+				{"productId":1,"attribution":"DIRECT","soldQuantity":10,"expectedCommissionAmount":1000}]}`,
+		},
+		settleBySub: map[string]int64{"": 5000},
+	}
+	a := &app{db: db, toss: f.client(t)}
+	c := &tossConn{api: a.toss, token: "tok", own: true}
+	from := time.Date(2026, 9, 1, 0, 0, 0, 0, kst)
+
+	perf, settled, err := a.accountStats(ctx, c, "sister", from, from, "2026-09")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perf.Summary.SoldQuantity != 10 || settled != 5000 {
+		t.Fatalf("실적=%+v 정산=%d, 거래처 전체여야 한다", perf.Summary, settled)
+	}
+}
+
+// 자기 키를 등록하면 그 키로 붙고, 지우면 공용 키로 돌아간다.
+func TestTossConnFor_자기_키가_있으면_그_키로_붙는다(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	const user = "own-key"
+
+	shared := &fakeTossServer{}
+	a := &app{db: db, toss: shared.client(t)}
+
+	c, err := a.tossConnFor(ctx, user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.own || c.api.PublisherID != "pub-uuid" {
+		t.Fatalf("키가 없으면 공용이어야 한다: own=%v pub=%q", c.own, c.api.PublisherID)
+	}
+
+	// 등록한 키는 거래처가 다르다. 토큰도 거래처마다 따로 받아 둔다.
+	mine := &fakeTossServer{}
+	api := mine.client(t)
+	api.PublisherID = "pub-sister"
+	t.Cleanup(func() {
+		db.DeleteTossKey(ctx, user)
+		db.ClearTossToken(ctx, "pub-sister")
+	})
+
+	conn, err := a.connToken(ctx, api, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !conn.own || conn.token == "" {
+		t.Fatalf("자기 키 연결=%+v", conn)
+	}
+	if subTagKey(conn, "u-"+user) == subTagKey(c, "u-"+user) {
+		t.Error("키가 다르면 subTag 기억도 달라야 한다")
+	}
+
+	// 받아 둔 토큰은 거래처별로 남아, 다음에는 다시 받지 않는다.
+	again, err := a.connToken(ctx, api, true)
+	if err != nil || again.token != conn.token || mine.tokenCalls != 1 {
+		t.Fatalf("토큰=%q 발급 %d번, 한 번만 받아야 한다", again.token, mine.tokenCalls)
+	}
+
+	// 키를 등록하면 tossConnFor가 그 키를 고른다.
+	k := &TossKey{UserID: user, AccessKey: "ak", SecretKey: "sk", PublisherID: "pub-sister"}
+	if err := db.SetTossKey(ctx, k); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := a.tossAPIFor(ctx, user)
+	if !ok || got.PublisherID != "pub-sister" {
+		t.Fatalf("키를 등록하면 그 키여야 한다: ok=%v pub=%q", ok, got.PublisherID)
+	}
+
+	// 지우면 공용으로 돌아간다.
+	if err := db.DeleteTossKey(ctx, user); err != nil {
+		t.Fatal(err)
+	}
+	if got, own := a.tossAPIFor(ctx, user); own || got.PublisherID != "pub-uuid" {
+		t.Fatalf("키를 지우면 공용이어야 한다: own=%v pub=%q", own, got.PublisherID)
 	}
 }

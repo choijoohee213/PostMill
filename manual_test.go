@@ -37,9 +37,14 @@ func TestTossProducts_고른_곳에서_상품을_가져온다(t *testing.T) {
 	}
 	a := &app{db: db, toss: f.client(t)}
 
+	c, err := a.tossConnFor(ctx, "src-owner")
+	if err != nil {
+		t.Fatalf("연결 실패: %v", err)
+	}
+
 	names := func(source string) string {
 		t.Helper()
-		_, items, err := a.tossProducts(ctx, "src-owner", source)
+		items, err := a.tossProducts(ctx, c, "src-owner", source)
 		if err != nil {
 			t.Fatalf("%s: %v", source, err)
 		}
@@ -83,12 +88,20 @@ func TestTossCategoryTree_모든_단계를_넘긴다(t *testing.T) {
 		{CategoryID: 2, DisplayName: "도서"},
 	}}
 	a := &app{db: db, toss: f.client(t)}
-	tree := a.tossCategoryTree(context.Background())
+	ctx := context.Background()
+	c, err := a.tossConnFor(ctx, "cat-tree")
+	if err != nil {
+		t.Fatalf("연결 실패: %v", err)
+	}
+	tree := a.tossCategoryTree(ctx, c)
 	if len(tree) != 2 || tree[0].Children[0].Children[0].ID != 100 || tree[0].Children[0].Children[0].Name != "밀폐용기" {
 		t.Fatalf("tree=%+v", tree)
 	}
-	if (&app{}).tossCategoryTree(context.Background()) != nil {
+	if a.tossCategoryTree(ctx, nil) != nil {
 		t.Error("토스 API가 없으면 비어야 한다")
+	}
+	if _, err := (&app{db: db}).tossConnFor(ctx, "no-key"); err != errNoTossKey {
+		t.Errorf("키가 없으면 errNoTossKey여야 한다: %v", err)
 	}
 }
 
@@ -108,11 +121,16 @@ func TestTossProducts_랭킹이_빈_카테고리는_상위에서_고른다(t *te
 	a := &app{db: db, toss: f.client(t)}
 	ctx := context.Background()
 
-	_, items, err := a.tossProducts(ctx, "u", "cat:100")
+	c, err := a.tossConnFor(ctx, "u")
+	if err != nil {
+		t.Fatalf("연결 실패: %v", err)
+	}
+
+	items, err := a.tossProducts(ctx, c, "u", "cat:100")
 	if err != nil || len(items) != 1 || items[0].DisplayName != "주방 베스트" {
 		t.Fatalf("소분류가 비면 중분류에서: items=%+v err=%v", items, err)
 	}
-	_, items, err = a.tossProducts(ctx, "u", "cat:20")
+	items, err = a.tossProducts(ctx, c, "u", "cat:20")
 	if err != nil || len(items) != 1 || items[0].DisplayName != "베스트" {
 		t.Fatalf("끝까지 비면 베스트에서: items=%+v err=%v", items, err)
 	}

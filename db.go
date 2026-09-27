@@ -615,3 +615,78 @@ func (db *DB) CountPublishedToss(ctx context.Context, userID string, from, to ti
 		userID, AffiliateToss, StatusPublished, from, to).Scan(&inRange, &total)
 	return inRange, total, err
 }
+
+// TossKey는 한 사용자가 등록한 토스 쉐어링크 키다.
+type TossKey struct {
+	UserID      string
+	AccessKey   string
+	SecretKey   string
+	PublisherID string
+}
+
+// GetTossKey는 그 사용자가 등록한 키를 읽는다. 없으면 false.
+func (db *DB) GetTossKey(ctx context.Context, userID string) (*TossKey, bool, error) {
+	k := &TossKey{UserID: userID}
+	err := db.pool.QueryRow(ctx,
+		`SELECT access_key, secret_key, publisher_id FROM toss_keys WHERE user_id = $1`,
+		userID).Scan(&k.AccessKey, &k.SecretKey, &k.PublisherID)
+	if err == pgx.ErrNoRows {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	return k, true, nil
+}
+
+func (db *DB) SetTossKey(ctx context.Context, k *TossKey) error {
+	_, err := db.pool.Exec(ctx,
+		`INSERT INTO toss_keys (user_id, access_key, secret_key, publisher_id)
+		 VALUES ($1, $2, $3, $4)
+		 ON CONFLICT (user_id) DO UPDATE SET
+		   access_key = EXCLUDED.access_key,
+		   secret_key = EXCLUDED.secret_key,
+		   publisher_id = EXCLUDED.publisher_id,
+		   updated_at = now()`,
+		k.UserID, k.AccessKey, k.SecretKey, k.PublisherID)
+	return err
+}
+
+func (db *DB) DeleteTossKey(ctx context.Context, userID string) error {
+	_, err := db.pool.Exec(ctx, `DELETE FROM toss_keys WHERE user_id = $1`, userID)
+	return err
+}
+
+// GetTossToken은 그 키로 받아 둔 액세스 토큰과 만료 시각을 읽는다.
+func (db *DB) GetTossToken(ctx context.Context, publisherID string) (string, time.Time, bool, error) {
+	var token string
+	var exp time.Time
+	err := db.pool.QueryRow(ctx,
+		`SELECT access_token, expires_at FROM toss_tokens WHERE publisher_id = $1`,
+		publisherID).Scan(&token, &exp)
+	if err == pgx.ErrNoRows {
+		return "", time.Time{}, false, nil
+	}
+	if err != nil {
+		return "", time.Time{}, false, err
+	}
+	return token, exp, true, nil
+}
+
+func (db *DB) SetTossToken(ctx context.Context, publisherID, token string, exp time.Time) error {
+	_, err := db.pool.Exec(ctx,
+		`INSERT INTO toss_tokens (publisher_id, access_token, expires_at)
+		 VALUES ($1, $2, $3)
+		 ON CONFLICT (publisher_id) DO UPDATE SET
+		   access_token = EXCLUDED.access_token,
+		   expires_at = EXCLUDED.expires_at,
+		   updated_at = now()`,
+		publisherID, token, exp)
+	return err
+}
+
+// ClearTossToken은 거절당한 토큰을 버린다. 다음 시도에서 새로 받는다.
+func (db *DB) ClearTossToken(ctx context.Context, publisherID string) error {
+	_, err := db.pool.Exec(ctx, `DELETE FROM toss_tokens WHERE publisher_id = $1`, publisherID)
+	return err
+}

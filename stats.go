@@ -46,7 +46,9 @@ type statsRow struct {
 
 // handleStats는 내 스레드 계정의 토스 쉐어링크 실적을 월 단위로 보여준다.
 func (a *app) handleStats(w http.ResponseWriter, r *http.Request) {
-	data := statsData{Enabled: a.toss != nil}
+	userID := a.session.userID(r)
+	api, _ := a.tossAPIFor(r.Context(), userID)
+	data := statsData{Enabled: api != nil}
 	if !data.Enabled {
 		a.render(w, "stats.html", data)
 		return
@@ -70,7 +72,6 @@ func (a *app) handleStats(w http.ResponseWriter, r *http.Request) {
 	}
 	data.Range = from.Format("1월 2일") + " ~ " + to.Format("1월 2일")
 
-	userID := a.session.userID(r)
 	// 게시 수는 PostMill 기록이라 토스가 응답하지 않아도 보여준다.
 	var err error
 	data.Posted, data.PostedTotal, err = a.db.CountPublishedToss(r.Context(), userID, from, month.AddDate(0, 1, 0))
@@ -78,12 +79,12 @@ func (a *app) handleStats(w http.ResponseWriter, r *http.Request) {
 		log.Printf("게시 수 조회 실패: %v", err)
 	}
 
-	token, err := a.lockedTossToken(r.Context())
+	c, err := a.tossConnFor(r.Context(), userID)
 	if err == nil {
-		data.Perf, data.Settled, err = a.accountStats(r.Context(), token, userID, from, to, data.Month)
+		data.Perf, data.Settled, err = a.accountStats(r.Context(), c, userID, from, to, data.Month)
 	}
 	if err != nil {
-		a.forgetTossToken(r.Context(), err)
+		a.forget(r.Context(), c, err)
 		log.Printf("토스 실적 조회 실패: %v", err)
 		data.Perf = nil
 		data.Error = statsFailMessage(err)
@@ -128,8 +129,13 @@ type accountView struct {
 	others     []string // 주인일 때 빼야 할 다른 계정 subTag
 }
 
-func (a *app) accountViewFor(ctx context.Context, token, userID string) (*accountView, error) {
-	tags, err := a.toss.ListSubTags(ctx, token)
+func (a *app) accountViewFor(ctx context.Context, c *tossConn, userID string) (*accountView, error) {
+	// 자기 키로 부르면 그 거래처가 통째로 자기 것이다. 남의 몫을 뺄 일이 없다.
+	if c.own {
+		return &accountView{owner: true, mine: tossSubTag(userID), registered: true}, nil
+	}
+
+	tags, err := c.api.ListSubTags(ctx, c.token)
 	if err != nil {
 		return nil, err
 	}
@@ -149,27 +155,27 @@ func (a *app) accountViewFor(ctx context.Context, token, userID string) (*accoun
 }
 
 // accountPerformance는 한 계정의 기간 실적이다.
-func (a *app) accountPerformance(ctx context.Context, token, userID string, from, to time.Time) (*Performance, error) {
-	v, err := a.accountViewFor(ctx, token, userID)
+func (a *app) accountPerformance(ctx context.Context, c *tossConn, userID string, from, to time.Time) (*Performance, error) {
+	v, err := a.accountViewFor(ctx, c, userID)
 	if err != nil {
 		return nil, err
 	}
-	return a.performanceFor(ctx, token, v, from, to)
+	return a.performanceFor(ctx, c, v, from, to)
 }
 
-func (a *app) performanceFor(ctx context.Context, token string, v *accountView, from, to time.Time) (*Performance, error) {
+func (a *app) performanceFor(ctx context.Context, c *tossConn, v *accountView, from, to time.Time) (*Performance, error) {
 	if !v.owner {
 		if !v.registered {
 			return &Performance{}, nil
 		}
-		return a.toss.Performance(ctx, token, from, to, v.mine)
+		return c.api.Performance(ctx, c.token, from, to, v.mine)
 	}
-	perf, err := a.toss.Performance(ctx, token, from, to, "")
+	perf, err := c.api.Performance(ctx, c.token, from, to, "")
 	if err != nil {
 		return nil, err
 	}
 	for _, tag := range v.others {
-		other, err := a.toss.Performance(ctx, token, from, to, tag)
+		other, err := c.api.Performance(ctx, c.token, from, to, tag)
 		if err != nil {
 			return nil, err
 		}
@@ -178,19 +184,19 @@ func (a *app) performanceFor(ctx context.Context, token string, v *accountView, 
 	return perf, nil
 }
 
-func (a *app) settledFor(ctx context.Context, token string, v *accountView, month string) (int64, error) {
+func (a *app) settledFor(ctx context.Context, c *tossConn, v *accountView, month string) (int64, error) {
 	if !v.owner {
 		if !v.registered {
 			return 0, nil
 		}
-		return a.toss.SettledCommission(ctx, token, month, v.mine)
+		return c.api.SettledCommission(ctx, c.token, month, v.mine)
 	}
-	settled, err := a.toss.SettledCommission(ctx, token, month, "")
+	settled, err := c.api.SettledCommission(ctx, c.token, month, "")
 	if err != nil {
 		return 0, err
 	}
 	for _, tag := range v.others {
-		other, err := a.toss.SettledCommission(ctx, token, month, tag)
+		other, err := c.api.SettledCommission(ctx, c.token, month, tag)
 		if err != nil {
 			return 0, err
 		}
@@ -200,16 +206,16 @@ func (a *app) settledFor(ctx context.Context, token string, v *accountView, mont
 }
 
 // accountStats는 한 계정의 실적과 정산 확정 수익금을 구한다.
-func (a *app) accountStats(ctx context.Context, token, userID string, from, to time.Time, month string) (*Performance, int64, error) {
-	v, err := a.accountViewFor(ctx, token, userID)
+func (a *app) accountStats(ctx context.Context, c *tossConn, userID string, from, to time.Time, month string) (*Performance, int64, error) {
+	v, err := a.accountViewFor(ctx, c, userID)
 	if err != nil {
 		return nil, 0, err
 	}
-	perf, err := a.performanceFor(ctx, token, v, from, to)
+	perf, err := a.performanceFor(ctx, c, v, from, to)
 	if err != nil {
 		return nil, 0, err
 	}
-	settled, err := a.settledFor(ctx, token, v, month)
+	settled, err := a.settledFor(ctx, c, v, month)
 	return perf, settled, err
 }
 

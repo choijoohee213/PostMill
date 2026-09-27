@@ -19,6 +19,54 @@
 </section>
 
 <section class="panel">
+  <h2 class="panel-title">토스 쉐어링크 키</h2>
+  {{if .OwnToss}}
+    <p class="panel-status">내 키로 발급 중</p>
+    <p class="hint">
+      거래처 {{.TossPublisher}}. 이 계정으로 쉐어링크가 발급되고, 수익도 토스가 이 계정에
+      직접 정산합니다.
+    </p>
+    <form method="post" action="/settings/toss/delete"
+          onsubmit="return confirm('키를 지우면 앞으로는 공용 키로 발급되어 수익이 그쪽으로 갑니다. 계속할까요?')">
+      <div class="actions">
+        <button class="btn btn-small btn-danger" type="submit">키 지우기</button>
+      </div>
+    </form>
+  {{else}}
+    {{if .SharedToss}}
+    <p class="panel-status panel-status-off">공용 키로 발급 중</p>
+    <p class="hint">
+      쉐어링크가 서버 공용 계정으로 발급되어, <b>수익도 그 계정으로 정산됩니다.</b>
+      실적은 계정별로 나눠 보이지만 돈은 한곳으로 모입니다.
+      자기 키를 넣으면 토스가 직접 정산합니다.
+    </p>
+    {{else}}
+    <p class="panel-status panel-status-off">연결되지 않음</p>
+    <p class="hint">키를 넣으면 토스 상품을 골라 쉐어링크까지 자동으로 발급합니다.</p>
+    {{end}}
+
+    <form class="form" method="post" action="/settings/toss">
+      <label class="field">
+        <span class="label">Access Key</span>
+        <input type="text" name="access_key" autocomplete="off" required>
+      </label>
+      <label class="field">
+        <span class="label">Secret Key</span>
+        <input type="password" name="secret_key" autocomplete="off" required>
+      </label>
+      <label class="field">
+        <span class="label">Publisher ID</span>
+        <input type="text" name="publisher_id" autocomplete="off" required>
+        <span class="hint">쉐어링크 크리에이터 어드민에서 Open API 승인 뒤 발급받습니다.</span>
+      </label>
+      <div class="actions">
+        <button class="btn btn-small btn-primary" type="submit">키 저장</button>
+      </div>
+    </form>
+  {{end}}
+</section>
+
+<section class="panel">
   <h2 class="panel-title">계정</h2>
   <div class="secondary-actions">
     <form method="post" action="/logout">

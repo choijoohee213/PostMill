@@ -86,3 +86,23 @@ ALTER TABLE posts ADD COLUMN IF NOT EXISTS shown_price bigint NOT NULL DEFAULT 0
 -- 하루특가의 마감 시각. 본문이 마감을 언급한 글에만 들어간다.
 -- 마감이 지나면 "오늘까지"가 거짓이 되므로 게시를 멈춘다.
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS deal_ends_at timestamptz;
+
+-- 사용자별 토스 쉐어링크 키. 토스 키는 사업자당 하나라 여러 명이 한 키를 쓰면
+-- 정산도 한 계정으로 모인다. 자기 키를 넣어 둔 사용자는 자기 계정으로 링크가
+-- 발급되어 토스가 그 사람에게 직접 정산한다. 없으면 서버 공용 키를 쓴다.
+CREATE TABLE IF NOT EXISTS toss_keys (
+    user_id      text PRIMARY KEY,
+    access_key   text        NOT NULL,
+    secret_key   text        NOT NULL,
+    publisher_id text        NOT NULL,
+    updated_at   timestamptz NOT NULL DEFAULT now()
+);
+
+-- 발급받은 액세스 토큰. 사용자가 아니라 키마다 하나다. 공용 키를 쓰는 사람들은
+-- 같은 토큰을 나눠 쓴다. 재발급이 제한되므로 만료 전까지 저장해 두고 쓴다.
+CREATE TABLE IF NOT EXISTS toss_tokens (
+    publisher_id text PRIMARY KEY,
+    access_token text        NOT NULL,
+    expires_at   timestamptz NOT NULL,
+    updated_at   timestamptz NOT NULL DEFAULT now()
+);

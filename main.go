@@ -115,6 +115,8 @@ func main() {
 	mux.HandleFunc("GET /stats", a.handleStats)
 	mux.HandleFunc("GET /settings", a.handleSettings)
 	mux.HandleFunc("POST /disconnect", a.handleDisconnect)
+	mux.HandleFunc("POST /settings/toss", a.handleTossKey)
+	mux.HandleFunc("POST /settings/toss/delete", a.handleTossKeyDelete)
 
 	port := os.Getenv("PORT")
 	if port == "" {

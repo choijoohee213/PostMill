@@ -45,7 +45,8 @@ func (a *app) handleManualSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	d := ManualDraft{Affiliate: form.Affiliate, Memo: form.Memo}
-	if form.Affiliate == AffiliateToss && a.toss != nil {
+	tossAPI, _ := a.tossAPIFor(r.Context(), userID)
+	if form.Affiliate == AffiliateToss && tossAPI != nil {
 		if form.ProductLink == "" {
 			fail("토스 상품 링크를 붙여넣어 주세요.")
 			return
@@ -102,13 +103,13 @@ func (a *app) tossManualLink(ctx context.Context, userID, raw string) (*ProductD
 		return nil, "", err
 	}
 
-	token, err := a.lockedTossToken(ctx)
+	c, err := a.tossConnFor(ctx, userID)
 	if err != nil {
 		return nil, "", err
 	}
-	found, _, err := a.toss.ProductDetailsByTacaIDs(ctx, token, []int64{tacaID})
+	found, _, err := c.api.ProductDetailsByTacaIDs(ctx, c.token, []int64{tacaID})
 	if err != nil {
-		a.forgetTossToken(ctx, err)
+		a.forget(ctx, c, err)
 		return nil, "", err
 	}
 	if len(found) == 0 {
@@ -116,14 +117,14 @@ func (a *app) tossManualLink(ctx context.Context, userID, raw string) (*ProductD
 	}
 	detail := &found[0]
 
-	tag, err := a.ensureSubTag(ctx, token, userID)
+	tag, err := a.ensureSubTag(ctx, c, userID)
 	if err != nil {
-		a.forgetTossToken(ctx, err)
+		a.forget(ctx, c, err)
 		return nil, "", err
 	}
-	link, err := a.toss.CreateLink(ctx, token, detail.TacaItemID, tag)
+	link, err := c.api.CreateLink(ctx, c.token, detail.TacaItemID, tag)
 	if err != nil {
-		a.forgetTossToken(ctx, err)
+		a.forget(ctx, c, err)
 		return nil, "", err
 	}
 	return detail, link, nil
