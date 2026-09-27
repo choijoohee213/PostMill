@@ -714,10 +714,9 @@ func TestResumeStuck_끊긴_게시를_이어서_마치고_오래되면_정리한
 	u := ThreadsUser{UserID: user, AccessToken: "tok", ExpiresAt: nowPlusDays(30)}
 	a.db.SaveThreadsUser(ctx, u)
 
-	// 본문과 답글 하나까지 올라간 뒤 끊긴 글을 만든다.
+	// 본문까지 올라가고 답글을 올리기 전에 끊긴 글을 만든다.
 	stuck := newPublishable(t, a.db, user)
 	a.db.SetPublishedBody(ctx, stuck.ID, "p1", "https://threads/p1")
-	a.db.SetReplyDone(ctx, stuck.ID, 1, "p1")
 	old := time.Now().Add(-publishStaleAfter - time.Minute)
 	a.db.pool.Exec(ctx, `UPDATE posts SET publish_started_at = $2 WHERE id = $1`, stuck.ID, old)
 
@@ -737,15 +736,19 @@ func TestResumeStuck_끊긴_게시를_이어서_마치고_오래되면_정리한
 	for _, c := range rec.calls() {
 		texts = append(texts, c.Text)
 	}
-	// 답글 하나까지 올라갔으므로 남은 답글과 링크만 올라간다.
-	if strings.Join(texts, "|") != "답글둘|https://link/x" {
-		t.Fatalf("올린 것=%v, 남은 답글과 링크만 올려야 한다", texts)
+	// 본문은 이미 올라갔으므로 문구와 링크 답글만 올라간다.
+	wantReply, err := ComposeReply(AffiliateCoupang, "https://link/x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(texts, "|") != wantReply {
+		t.Fatalf("올린 것=%v, 답글 하나만 올려야 한다", texts)
 	}
 
 	// 너무 오래 끌린 글은 더 이어가지 않고 정리한다.
 	giveUp := newPublishable(t, a.db, user)
 	a.db.SetPublishedBody(ctx, giveUp.ID, "p9", "https://threads/p9")
-	a.db.SetPublishNote(ctx, giveUp.ID, "답글 1을 올리지 못했습니다.")
+	a.db.SetPublishNote(ctx, giveUp.ID, "답글을 올리지 못했습니다.")
 	a.db.pool.Exec(ctx, `UPDATE posts SET publish_started_at = $2 WHERE id = $1`,
 		giveUp.ID, time.Now().Add(-publishGiveUp-time.Minute))
 

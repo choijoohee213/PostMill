@@ -452,6 +452,7 @@ func (a *app) suggestToss(ctx context.Context, userID, source string, avoid []st
 		}
 		d.AffiliateLink = link
 		d.TacaItemID = picked.TacaItemID
+		d.ThumbnailURL = picked.ThumbnailURL
 		// 추적이 없는 일반 주소다. 상품을 확인하는 버튼에만 쓰고 게시하지 않는다.
 		d.ProductURL = picked.ProductURL
 		drafts[i] = d

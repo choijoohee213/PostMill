@@ -53,7 +53,8 @@ type TossProduct struct {
 	IsSoldOut     bool    `json:"isSoldOut"`
 	ReviewScore   float64 `json:"reviewScore"`
 	ReviewCount   int     `json:"reviewCount"`
-	EndAt         string  `json:"endAt"` // 하루특가에만 있다
+	ThumbnailURL  string  `json:"thumbnailUrl"` // 상품 이미지. 게시글에 그대로 붙인다
+	EndAt         string  `json:"endAt"`        // 하루특가에만 있다
 	CategoryIDs   []int64 `json:"categoryIds"`
 }
 

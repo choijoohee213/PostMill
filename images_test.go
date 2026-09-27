@@ -373,3 +373,91 @@ func TestHandleImageUpload(t *testing.T) {
 		t.Fatalf("게시 중 code=%d", w.Code)
 	}
 }
+
+// 상품 이미지는 초안을 만들 때 받아 붙인다. 주소가 만료돼도 게시가 되도록
+// 주소가 아니라 바이트로 갖고 있어야 한다.
+func TestAddProductImage_받아서_붙인다(t *testing.T) {
+	want := encodeJPEG(t, 1000, 1000)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Write(want)
+	}))
+	t.Cleanup(srv.Close)
+
+	old := productImageClient
+	productImageClient = srv.Client()
+	t.Cleanup(func() { productImageClient = old })
+
+	a := &app{db: openTestDB(t)}
+	ctx := context.Background()
+	const user = "product-image"
+	id, _ := a.db.CreateDraft(ctx, user, AffiliateToss, "", "https://link/x", "")
+	t.Cleanup(func() { a.db.DeletePost(ctx, user, id) })
+
+	a.addProductImage(ctx, user, id, srv.URL+"/t.jpeg")
+
+	imgs, err := a.db.ListImages(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(imgs) != 1 {
+		t.Fatalf("사진 %d장, 1장이어야 한다", len(imgs))
+	}
+	gotType, gotData, err := a.db.GetImageData(ctx, imgs[0].Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotType != "image/jpeg" {
+		t.Errorf("content-type=%q", gotType)
+	}
+	// 주소가 아니라 바이트로 갖고 있어야 만료에 안전하다.
+	if !bytes.Equal(gotData, want) {
+		t.Errorf("저장된 바이트가 받아온 것과 다르다 (%d != %d)", len(gotData), len(want))
+	}
+}
+
+func TestAddProductImage_실패해도_초안을_막지_않는다(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	old := productImageClient
+	productImageClient = srv.Client()
+	t.Cleanup(func() { productImageClient = old })
+
+	a := &app{db: openTestDB(t)}
+	ctx := context.Background()
+	const user = "product-image-fail"
+	id, _ := a.db.CreateDraft(ctx, user, AffiliateToss, "", "https://link/x", "")
+	t.Cleanup(func() { a.db.DeletePost(ctx, user, id) })
+
+	// 404여도 패닉하거나 초안을 건드리지 않는다.
+	a.addProductImage(ctx, user, id, srv.URL+"/none.jpeg")
+
+	imgs, _ := a.db.ListImages(ctx, id)
+	if len(imgs) != 0 {
+		t.Fatalf("사진 %d장, 붙지 않아야 한다", len(imgs))
+	}
+	if p, err := a.db.GetPost(ctx, user, id); err != nil {
+		t.Fatalf("초안이 망가졌다: %v", err)
+	} else if p.Status == "" {
+		t.Fatal("초안 상태가 비었다")
+	}
+}
+
+// 주소가 비어 있으면(쿠팡) 아무 일도 하지 않는다.
+func TestAddProductImage_주소가_없으면_넘어간다(t *testing.T) {
+	a := &app{db: openTestDB(t)}
+	ctx := context.Background()
+	const user = "product-image-empty"
+	id, _ := a.db.CreateDraft(ctx, user, AffiliateCoupang, "", "https://link/x", "")
+	t.Cleanup(func() { a.db.DeletePost(ctx, user, id) })
+
+	a.addProductImage(ctx, user, id, "")
+
+	imgs, _ := a.db.ListImages(ctx, id)
+	if len(imgs) != 0 {
+		t.Fatalf("사진 %d장, 붙지 않아야 한다", len(imgs))
+	}
+}
