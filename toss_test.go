@@ -262,7 +262,7 @@ func TestSuggestFromTossBatch_장마다_서로_다른_상품을_고른다(t *tes
 	})
 	products := []TossProduct{{DisplayName: "첫째"}, {DisplayName: "둘째"}}
 
-	picks, drafts, err := g.SuggestFromTossBatch(context.Background(), products, hookTypes[:3])
+	picks, drafts, err := g.SuggestFromTossBatch(context.Background(), products, hookTypes[:3], false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -324,7 +324,7 @@ func TestSuggest_토스는_고른_상품의_쉐어링크까지_넣는다(t *test
 	id, _ := db.CreateDraft(ctx, user, AffiliateToss, "", "", "")
 	t.Cleanup(func() { db.DeletePost(ctx, user, id) })
 
-	a.suggest([]int64{id}, user, AffiliateToss, nil, "", []draftSpec{{Hook: hookTypes[0]}})
+	a.suggest([]int64{id}, user, AffiliateToss, nil, "", []draftSpec{{Hook: hookTypes[0]}}, false)
 
 	p, _ := db.GetPost(ctx, user, id)
 	if p.Status != StatusPending || p.ErrorMsg != "" {
@@ -340,7 +340,7 @@ func TestSuggest_토스는_고른_상품의_쉐어링크까지_넣는다(t *test
 	// 토큰과 목록은 다시 받지 않는다.
 	id2, _ := db.CreateDraft(ctx, user, AffiliateToss, "", "", "")
 	t.Cleanup(func() { db.DeletePost(ctx, user, id2) })
-	a.suggest([]int64{id2}, user, AffiliateToss, nil, "", []draftSpec{{Hook: hookTypes[0]}})
+	a.suggest([]int64{id2}, user, AffiliateToss, nil, "", []draftSpec{{Hook: hookTypes[0]}}, false)
 	if f.tokenCalls != 1 || f.listCalls != 1 {
 		t.Fatalf("토큰 %d번, 목록 %d번. 토큰 1번·목록 1번(베스트)이어야 한다", f.tokenCalls, f.listCalls)
 	}
@@ -372,7 +372,7 @@ func TestSuggest_토스_API가_거부하면_이유를_남긴다(t *testing.T) {
 	id, _ := db.CreateDraft(ctx, user, AffiliateToss, "", "", "")
 	t.Cleanup(func() { db.DeletePost(ctx, user, id) })
 
-	a.suggest([]int64{id}, user, AffiliateToss, nil, "", []draftSpec{{Hook: hookTypes[0]}})
+	a.suggest([]int64{id}, user, AffiliateToss, nil, "", []draftSpec{{Hook: hookTypes[0]}}, false)
 
 	p, _ := db.GetPost(ctx, user, id)
 	if p.Status != StatusGenerating || !strings.Contains(p.ErrorMsg, "IP") {
@@ -527,6 +527,52 @@ func TestTossUnavailableReason(t *testing.T) {
 	f.detailFail = true
 	if r := a.tossUnavailableReason(ctx, post(11, true)); r != "" {
 		t.Errorf("토스 장애로 게시를 막았다: %q", r)
+	}
+}
+
+// 본문에 쓴 가격이 바뀐 채로 올라가면 이미 올라간 글은 고칠 수 없다.
+func TestTossUnavailableReason_가격이_바뀌면_막는다(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	f := &fakeTossServer{detailsByID: map[int64]ProductDetail{
+		21: {TacaItemID: 21, DisplayPrice: 7400},
+	}}
+	a := &app{db: db, toss: f.client(t)}
+
+	post := func(shown int64) *Post {
+		return &Post{Affiliate: AffiliateToss, LinkAuto: true, TacaItemID: 21, ShownPrice: shown}
+	}
+
+	if r := a.tossUnavailableReason(ctx, post(7400)); r != "" {
+		t.Errorf("가격이 그대로인데 막았다: %q", r)
+	}
+	r := a.tossUnavailableReason(ctx, post(5900))
+	if !strings.Contains(r, "가격이") || !strings.Contains(r, "7400") {
+		t.Errorf("바뀐 가격을 알리지 않았다: %q", r)
+	}
+	// 가격을 쓰지 않은 글은 가격이 달라도 상관없다.
+	if r := a.tossUnavailableReason(ctx, post(0)); r != "" {
+		t.Errorf("가격을 쓰지 않은 글을 막았다: %q", r)
+	}
+}
+
+// 가격을 쓸지는 초안마다 다르므로 요청에 실려야 한다.
+func TestPricePrompt_요청마다_가격_허용을_정한다(t *testing.T) {
+	off := pricePrompt(false)
+	if !strings.Contains(off, "쓰지 마라") {
+		t.Errorf("끈 상태가 금지하지 않는다: %q", off)
+	}
+	on := pricePrompt(true)
+	if !strings.Contains(on, "써도 된다") {
+		t.Errorf("켠 상태가 허용하지 않는다: %q", on)
+	}
+	// 가격을 써도 재촉은 안 된다. 후기지 광고가 아니다.
+	if !strings.Contains(on, "빨리 사라") {
+		t.Errorf("켠 상태가 재촉을 막지 않는다: %q", on)
+	}
+	// 지어낸 값은 게시 직전에 확인할 수가 없다.
+	if !strings.Contains(on, "지어내지 마라") {
+		t.Errorf("켠 상태가 지어내는 것을 막지 않는다: %q", on)
 	}
 }
 
@@ -690,7 +736,7 @@ func TestBatch_초안_머리말을_떼고_읽는다(t *testing.T) {
 
 	toss := "[초안 1]\n2\n---\n본문\n=====\n초안 2: 1\n---\n본문"
 	g2, _ := fakeGemini(t, func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, okBody(toss)) })
-	picks, tdrafts, err := g2.SuggestFromTossBatch(context.Background(), []TossProduct{{DisplayName: "첫째"}, {DisplayName: "둘째"}}, hookTypes[:2])
+	picks, tdrafts, err := g2.SuggestFromTossBatch(context.Background(), []TossProduct{{DisplayName: "첫째"}, {DisplayName: "둘째"}}, hookTypes[:2], false)
 	if err != nil {
 		t.Fatal(err)
 	}

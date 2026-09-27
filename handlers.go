@@ -282,7 +282,7 @@ func (a *app) handleRetry(w http.ResponseWriter, r *http.Request) {
 		log.Printf("재시도 준비 실패: %v", err)
 	}
 	if !p.IsManual() {
-		go a.suggestOne(id, p.UserID, p.Affiliate, a.recentProducts(r.Context(), p.UserID))
+		go a.suggestOne(id, p.UserID, p.Affiliate, a.recentProducts(r.Context(), p.UserID), p.ShownPrice != 0)
 	} else {
 		go a.generate(id, p.Affiliate, p.ProductName, p.Memo)
 	}

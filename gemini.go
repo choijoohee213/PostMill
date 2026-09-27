@@ -544,7 +544,8 @@ const tossSystemPrompt = `너는 스레드(Threads)에 제휴 마케팅 글을 �
 ` + autoVoiceRules + `
 ` + factRules + `
 - 상품명을 그대로 옮기지 말고 "이 무선 청소기"처럼 종류로 말한다.
-- 목록의 가격·할인·리뷰는 고르는 데만 쓰고 글에는 쓰지 않는다. 금방 바뀐다.
+- 목록의 리뷰 점수와 개수는 고르는 데만 쓰고 글에는 쓰지 않는다.
+  가격을 쓸지는 요청에서 정해준다.
 
 다른 말 없이 두 부분만 출력한다.`
 
@@ -555,6 +556,7 @@ type AutoDraft struct {
 	AffiliateLink string // 토스 API로 발급한 쉐어링크. 쿠팡은 비어 있다
 	TacaItemID    int64  // 토스 API로 고른 상품. 쿠팡은 0
 	ThumbnailURL  string // 토스가 준 상품 이미지 주소. 쿠팡은 비어 있다
+	ShownPrice    int64  // 본문에 쓴 가격. 0이면 가격을 쓰지 않았다
 	Body          string
 }
 
@@ -621,7 +623,7 @@ func (g *Gemini) SuggestDrafts(ctx context.Context, affiliate string, avoid []st
 
 // SuggestFromTossBatch는 토스 상품 목록에서 서로 다른 상품을 골라 초안 여러 장을
 // 한 번에 쓴다. 장마다 고른 상품의 목록 내 위치를 돌려주고, 못 쓴 장은 -1과 nil이다.
-func (g *Gemini) SuggestFromTossBatch(ctx context.Context, products []TossProduct, hooks []hookType) ([]int, []*AutoDraft, error) {
+func (g *Gemini) SuggestFromTossBatch(ctx context.Context, products []TossProduct, hooks []hookType, showPrice bool) ([]int, []*AutoDraft, error) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "아래 상품 중에서 서로 다른 상품 %d개를 골라 초안마다 하나씩 쓴다.\n\n", len(hooks))
 	for i, p := range products {
@@ -640,6 +642,7 @@ func (g *Gemini) SuggestFromTossBatch(ctx context.Context, products []TossProduc
 	for i, h := range hooks {
 		fmt.Fprintf(&b, "\n초안 %d: 훅은 %s이다. %s", i+1, h.Name, h.Guide)
 	}
+	b.WriteString(pricePrompt(showPrice))
 	b.WriteString(batchFormat(len(hooks)))
 
 	var picks []int
@@ -681,6 +684,20 @@ func (g *Gemini) SuggestFromTossBatch(ctx context.Context, products []TossProduc
 		return nil
 	})
 	return picks, drafts, err
+}
+
+// pricePrompt는 가격을 글에 써도 되는지 요청마다 정해준다.
+//
+// 시스템 프롬프트가 아니라 요청에 두는 이유는 초안마다 다르기 때문이다.
+// 쓰기로 한 초안은 게시 직전에 가격이 그대로인지 확인하므로, 목록에 적힌
+// 값을 그대로 써야 한다. 지어낸 값은 확인할 수가 없다.
+func pricePrompt(showPrice bool) string {
+	if !showPrice {
+		return "\n\n가격과 할인율은 고르는 데만 쓰고 글에는 쓰지 마라. 금방 바뀐다."
+	}
+	return "\n\n고른 상품의 가격은 글에 써도 된다. 위 목록에 적힌 값을 그대로 쓰고 지어내지 마라.\n" +
+		"\"하나에 7,400원이라 일단 담았어\"처럼 사실만 말한다.\n" +
+		"\"빨리 사라\", \"지금 아니면 늦음\", \"쟁여라\" 같은 재촉은 하지 마라. 후기지 광고가 아니다."
 }
 
 // batchFormat은 요청 끝에 붙이는 출력 형식 안내다.

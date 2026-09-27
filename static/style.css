@@ -1338,6 +1338,24 @@ main {
   gap: 6px;
 }
 
+/* 만들기 칸의 체크박스. 칩과 달리 켜고 끄는 하나짜리라 네모를 그대로 쓴다. */
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.check input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent-line);
+  cursor: pointer;
+}
+
 .chips span {
   display: block;
   padding: 6px 12px;

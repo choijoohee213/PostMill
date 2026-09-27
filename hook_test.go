@@ -43,7 +43,7 @@ func TestHook_세_가지_생성_모두_훅을_모델에게_알린다(t *testing.
 	if _, err := rec.gemini(t, "상품\n---\n본문").SuggestDrafts(ctx, AffiliateCoupang, nil, []draftSpec{{Hook: h}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := rec.gemini(t, "1\n---\n본문").SuggestFromTossBatch(ctx, []TossProduct{{DisplayName: "a"}}, []hookType{h}); err != nil {
+	if _, _, err := rec.gemini(t, "1\n---\n본문").SuggestFromTossBatch(ctx, []TossProduct{{DisplayName: "a"}}, []hookType{h}, false); err != nil {
 		t.Fatal(err)
 	}
 	if len(rec.prompts) != 3 {
