@@ -113,6 +113,7 @@ func main() {
 	mux.HandleFunc("GET /media/{token}", a.handleMedia)
 	mux.HandleFunc("GET /history", a.handleHistory)
 	mux.HandleFunc("GET /stats", a.handleStats)
+	mux.HandleFunc("GET /debug/toss-fields", a.handleTossFields) // 임시 진단. 확인 후 제거한다
 	mux.HandleFunc("GET /settings", a.handleSettings)
 	mux.HandleFunc("POST /disconnect", a.handleDisconnect)
 
