@@ -60,6 +60,10 @@ func (a *app) handleManualSubmit(w http.ResponseWriter, r *http.Request) {
 		}
 		d.ProductName, d.ProductURL = detail.DisplayName, detail.ProductURL
 		d.AffiliateLink, d.LinkAuto, d.TacaItemID = link, true, detail.TacaItemID
+		// 가격은 토스 상세 조회로 알아낸 값이라 게시 직전에 다시 확인할 수 있다.
+		if r.FormValue("show_price") != "" {
+			d.ShownPrice = detail.DisplayPrice
+		}
 	} else {
 		if form.AffiliateLink == "" {
 			fail("제휴 링크를 붙여넣어 주세요.")
@@ -81,7 +85,7 @@ func (a *app) handleManualSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 생성은 백그라운드로 넘기고 즉시 목록으로 보낸다.
-	go a.generate(id, d.Affiliate, d.ProductName, d.Memo)
+	go a.generate(id, d.Affiliate, d.ProductName, d.Memo, d.ShownPrice)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 

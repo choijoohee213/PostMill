@@ -556,23 +556,65 @@ func TestTossUnavailableReason_가격이_바뀌면_막는다(t *testing.T) {
 	}
 }
 
+// 본문이 "오늘까지"라고 말해둔 글이 마감 뒤에 올라가면 거짓이 된다.
+func TestTossUnavailableReason_특가가_끝나면_막는다(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	f := &fakeTossServer{}
+	a := &app{db: db, toss: f.client(t)}
+
+	past := time.Now().Add(-time.Hour)
+	future := time.Now().Add(time.Hour)
+
+	// 마감은 저장해 둔 시각만 보므로 토스를 부르지 않는다.
+	calls := f.detailCalls
+	r := a.tossUnavailableReason(ctx, &Post{Affiliate: AffiliateToss, LinkAuto: true, TacaItemID: 31, DealEndsAt: &past})
+	if !strings.Contains(r, "특가가 끝나서") {
+		t.Errorf("끝난 특가를 막지 않았다: %q", r)
+	}
+	if f.detailCalls != calls {
+		t.Error("마감만 보면 되는데 토스를 불렀다")
+	}
+
+	if r := a.tossUnavailableReason(ctx, &Post{Affiliate: AffiliateToss, LinkAuto: true, TacaItemID: 31, DealEndsAt: &future}); r != "" {
+		t.Errorf("아직 남은 특가를 막았다: %q", r)
+	}
+}
+
 // 가격을 쓸지는 초안마다 다르므로 요청에 실려야 한다.
 func TestPricePrompt_요청마다_가격_허용을_정한다(t *testing.T) {
-	off := pricePrompt(false)
+	off := pricePrompt(false, false)
 	if !strings.Contains(off, "쓰지 마라") {
 		t.Errorf("끈 상태가 금지하지 않는다: %q", off)
 	}
-	on := pricePrompt(true)
+	on := pricePrompt(true, false)
 	if !strings.Contains(on, "써도 된다") {
 		t.Errorf("켠 상태가 허용하지 않는다: %q", on)
-	}
-	// 가격을 써도 재촉은 안 된다. 후기지 광고가 아니다.
-	if !strings.Contains(on, "빨리 사라") {
-		t.Errorf("켠 상태가 재촉을 막지 않는다: %q", on)
 	}
 	// 지어낸 값은 게시 직전에 확인할 수가 없다.
 	if !strings.Contains(on, "지어내지 마라") {
 		t.Errorf("켠 상태가 지어내는 것을 막지 않는다: %q", on)
+	}
+}
+
+// 마감은 하루특가일 때만 말할 수 있다. 없는 마감을 지어내면 가격을
+// 지어내지 말라는 규칙과 앞뒤가 맞지 않는다.
+func TestPricePrompt_마감은_하루특가일_때만_허용한다(t *testing.T) {
+	deal := pricePrompt(true, true)
+	if !strings.Contains(deal, "언제까지인지도 말해도 된다") {
+		t.Errorf("하루특가인데 마감을 막는다: %q", deal)
+	}
+
+	plain := pricePrompt(true, false)
+	if !strings.Contains(plain, "지어내지 마라") || !strings.Contains(plain, "지금 아니면 늦음") {
+		t.Errorf("일반 상품인데 없는 마감을 막지 않는다: %q", plain)
+	}
+
+	// 어느 쪽이든 명령조는 막는다. 후기지 광고가 아니다.
+	for name, got := range map[string]string{"하루특가": deal, "일반": plain} {
+		if !strings.Contains(got, "쟁여라") {
+			t.Errorf("%s: 명령조를 막지 않는다: %q", name, got)
+		}
 	}
 }
 

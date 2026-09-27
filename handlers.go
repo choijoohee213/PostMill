@@ -284,7 +284,7 @@ func (a *app) handleRetry(w http.ResponseWriter, r *http.Request) {
 	if !p.IsManual() {
 		go a.suggestOne(id, p.UserID, p.Affiliate, a.recentProducts(r.Context(), p.UserID), p.ShownPrice != 0)
 	} else {
-		go a.generate(id, p.Affiliate, p.ProductName, p.Memo)
+		go a.generate(id, p.Affiliate, p.ProductName, p.Memo, p.ShownPrice)
 	}
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -293,7 +293,7 @@ func (a *app) handleRetry(w http.ResponseWriter, r *http.Request) {
 // generate는 요청과 무관하게 도는 백그라운드 작업이다.
 // 요청 컨텍스트를 쓰면 리다이렉트와 동시에 취소되므로 쓰지 않는다.
 // 상품은 사용자가 골랐으므로 글만 쓴다. 메모가 없으면 상품 이름으로만 쓴다.
-func (a *app) generate(id int64, affiliate, productName, memo string) {
+func (a *app) generate(id int64, affiliate, productName, memo string, shownPrice int64) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 
@@ -311,7 +311,7 @@ func (a *app) generate(id int64, affiliate, productName, memo string) {
 		return
 	}
 
-	body, err := a.gemini.GenerateDraft(ctx, affiliate, manualMemo(productName, memo), room, randomHook())
+	body, err := a.gemini.GenerateDraft(ctx, affiliate, manualMemo(productName, memo), room, randomHook(), shownPrice)
 	if err != nil {
 		fail(draftFailMessage(err), err)
 		return
@@ -473,7 +473,7 @@ func (a *app) handleRegenerate(w http.ResponseWriter, r *http.Request) {
 	if err := a.db.DeleteImages(r.Context(), p.UserID, p.ID); err != nil {
 		log.Printf("재생성 사진 삭제 실패 (id=%d): %v", p.ID, err)
 	}
-	go a.generate(p.ID, p.Affiliate, p.ProductName, p.Memo)
+	go a.generate(p.ID, p.Affiliate, p.ProductName, p.Memo, p.ShownPrice)
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }

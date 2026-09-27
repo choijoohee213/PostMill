@@ -50,7 +50,7 @@ func TestRetry_503은_다시_시도한다(t *testing.T) {
 		fmt.Fprint(w, okBody("세 번째에 성공한 본문"))
 	})
 
-	body, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400, hookTypes[0])
+	body, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400, hookTypes[0], 0)
 	if err != nil {
 		t.Fatalf("재시도로 성공했어야 한다: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestRetry_429도_다시_시도한다(t *testing.T) {
 		fmt.Fprint(w, `{"error":{"message":"rate limit"}}`)
 	})
 
-	if _, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400, hookTypes[0]); err == nil {
+	if _, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400, hookTypes[0], 0); err == nil {
 		t.Fatal("계속 실패했으므로 에러여야 한다")
 	}
 	if *calls != maxAttempts {
@@ -85,7 +85,7 @@ func TestRetry_400은_다시_시도하지_않는다(t *testing.T) {
 		fmt.Fprint(w, `{"error":{"message":"API key not valid"}}`)
 	})
 
-	_, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400, hookTypes[0])
+	_, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400, hookTypes[0], 0)
 	if err == nil {
 		t.Fatal("에러여야 한다")
 	}
@@ -107,7 +107,7 @@ func TestRetry_길이초과는_다시_뽑는다(t *testing.T) {
 		fmt.Fprint(w, okBody("짧은 본문"))
 	})
 
-	body, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 10, hookTypes[0])
+	body, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 10, hookTypes[0], 0)
 	if err != nil {
 		t.Fatalf("두 번째에 성공했어야 한다: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestRetry_차단된_응답은_다시_시도하지_않는다(t *testing.T) {
 		fmt.Fprint(w, `{"promptFeedback":{"blockReason":"SAFETY"}}`)
 	})
 
-	if _, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400, hookTypes[0]); err == nil {
+	if _, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400, hookTypes[0], 0); err == nil {
 		t.Fatal("차단은 에러여야 한다")
 	}
 	if *calls != 1 {
@@ -139,7 +139,7 @@ func TestRetry_잘린_응답은_버린다(t *testing.T) {
 		fmt.Fprint(w, `{"candidates":[{"content":{"parts":[{"text":"잘린 본"}]},"finishReason":"MAX_TOKENS"}]}`)
 	})
 
-	if _, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400, hookTypes[0]); err == nil {
+	if _, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400, hookTypes[0], 0); err == nil {
 		t.Fatal("STOP이 아니면 에러여야 한다")
 	}
 }
@@ -157,7 +157,7 @@ func TestRetry_하루_한도는_다시_시도하지_않는다(t *testing.T) {
 		w.WriteHeader(http.StatusTooManyRequests)
 		fmt.Fprint(w, quotaBody("GenerateRequestsPerDayPerProjectPerModel-FreeTier", "36s"))
 	})
-	_, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400, hookTypes[0])
+	_, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400, hookTypes[0], 0)
 	if !errors.Is(err, errDailyQuota) {
 		t.Fatalf("err=%v", err)
 	}
@@ -186,7 +186,7 @@ func TestRetry_분당_한도는_알려준_시간만큼_기다린다(t *testing.T
 		}
 		fmt.Fprint(w, okBody("본문이야"))
 	})
-	if _, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400, hookTypes[0]); err != nil {
+	if _, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400, hookTypes[0], 0); err != nil {
 		t.Fatal(err)
 	}
 	if n != 2 || gaps[1] < 200*time.Millisecond {
@@ -200,7 +200,7 @@ func TestRetry_너무_오래_기다리라면_포기한다(t *testing.T) {
 		w.WriteHeader(http.StatusTooManyRequests)
 		fmt.Fprint(w, quotaBody("GenerateRequestsPerMinutePerProjectPerModel-FreeTier", "3600s"))
 	})
-	if _, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400, hookTypes[0]); err == nil {
+	if _, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400, hookTypes[0], 0); err == nil {
 		t.Fatal("성공했다")
 	}
 	if *calls != 1 {
@@ -242,10 +242,10 @@ func TestMultiKey_한도에_걸린_키는_건너뛰고_다음_요청도_그_키�
 		fmt.Fprint(w, okBody("본문이야"))
 	})
 	ctx := context.Background()
-	if _, err := g.GenerateDraft(ctx, AffiliateCoupang, "메모", 400, hookTypes[0]); err != nil {
+	if _, err := g.GenerateDraft(ctx, AffiliateCoupang, "메모", 400, hookTypes[0], 0); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := g.GenerateDraft(ctx, AffiliateCoupang, "메모", 400, hookTypes[0]); err != nil {
+	if _, err := g.GenerateDraft(ctx, AffiliateCoupang, "메모", 400, hookTypes[0], 0); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Join(*seen, ",") != "k1,k2,k2" {
@@ -259,7 +259,7 @@ func TestMultiKey_모든_키가_하루_한도면_안내한다(t *testing.T) {
 		w.WriteHeader(http.StatusTooManyRequests)
 		fmt.Fprint(w, quotaBody("GenerateRequestsPerDayPerProjectPerModel-FreeTier", "36s"))
 	})
-	_, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400, hookTypes[0])
+	_, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400, hookTypes[0], 0)
 	if !errors.Is(err, errDailyQuota) {
 		t.Fatalf("err=%v", err)
 	}
@@ -274,7 +274,7 @@ func TestMultiKey_한도가_아닌_실패는_다른_키로_넘기지_않는다(t
 		w.WriteHeader(http.StatusBadRequest)
 		fmt.Fprint(w, `{"error":{"message":"bad"}}`)
 	})
-	if _, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400, hookTypes[0]); err == nil {
+	if _, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400, hookTypes[0], 0); err == nil {
 		t.Fatal("성공했다")
 	}
 	if strings.Join(*seen, ",") != "k1" {

@@ -109,6 +109,13 @@
       <input type="url" name="product_link" value="{{.Form.ProductLink}}" placeholder="https://toss.shopping/t/…" inputmode="url">
     </label>
     <p class="hint">상품 페이지 주소나 공유 링크를 붙여넣으면 상품 이름을 가져오고 쉐어링크를 만들어요.</p>
+
+    {{/* 토스 상세 조회로 가격을 알 수 있어 자동 초안과 같은 선택을 둔다. */}}
+    <label class="check">
+      <input type="checkbox" name="show_price" value="1">
+      <span>가격도 쓰기</span>
+    </label>
+    <p class="hint">본문에 "하나에 7,400원이라" 처럼 가격을 써요. 게시할 때 가격이 바뀌어 있으면 올리지 않고 알려줘요.</p>
   </fieldset>
   {{end}}
 

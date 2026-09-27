@@ -457,6 +457,11 @@ func (a *app) suggestToss(ctx context.Context, userID, source string, avoid []st
 		// 게시 직전에 이 값이 그대로인지 확인한다. 쓰지 않았으면 0이다.
 		if showPrice {
 			d.ShownPrice = picked.DisplayPrice
+			// 하루특가면 본문이 마감을 말할 수 있다. 마감이 지나면 그 말이
+			// 거짓이 되므로 시각을 남겨 게시를 멈춘다.
+			if t, err := time.Parse(time.RFC3339, picked.EndAt); err == nil {
+				d.DealEndsAt = &t
+			}
 		}
 		// 추적이 없는 일반 주소다. 상품을 확인하는 버튼에만 쓰고 게시하지 않는다.
 		d.ProductURL = picked.ProductURL
@@ -479,6 +484,11 @@ func (a *app) lockedTossToken(ctx context.Context) (string, error) {
 // 토스 API가 응답하지 않을 때는 게시를 막지 않는다. 토스 장애로 게시까지
 // 멈추면 안 되고, 상품은 대개 그대로 살 수 있다.
 func (a *app) tossUnavailableReason(ctx context.Context, p *Post) string {
+	// 마감은 저장해 둔 시각만 보면 되므로 토스를 부르지 않아도 안다.
+	// 본문이 "오늘까지"라고 말해두고 마감 뒤에 올라가면 거짓이 된다.
+	if p.DealEndsAt != nil && time.Now().After(*p.DealEndsAt) {
+		return "특가가 끝나서 게시를 멈췄어요. 본문이 마감을 말하고 있어요. 재생성해주세요."
+	}
 	// 사용자가 링크를 직접 바꿨으면 그 링크가 어느 상품인지 알 수 없다.
 	if a.toss == nil || p.Affiliate != AffiliateToss || !p.LinkAuto || p.TacaItemID == 0 {
 		return ""

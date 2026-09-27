@@ -192,11 +192,11 @@ type geminiResponse struct {
 // GenerateDraft는 메모를 바탕으로 본문 초안을 만든다.
 // 대가성 문구와 링크는 포함하지 않는다 (compose.go가 발행 시점에 붙인다).
 // 일시적인 실패는 maxAttempts만큼 다시 시도한다.
-func (g *Gemini) GenerateDraft(ctx context.Context, affiliate, memo string, room int, hook hookType) (string, error) {
+func (g *Gemini) GenerateDraft(ctx context.Context, affiliate, memo string, room int, hook hookType, shownPrice int64) (string, error) {
 	var body string
 	err := retry(ctx, "초안 생성", func() error {
 		var err error
-		body, err = g.generateOnce(ctx, affiliate, memo, room, hook)
+		body, err = g.generateOnce(ctx, affiliate, memo, room, hook, shownPrice)
 		return err
 	})
 	return body, err
@@ -233,19 +233,27 @@ func retry(ctx context.Context, label string, fn func() error) error {
 	return fmt.Errorf("%d번 시도했지만 실패했다: %w", maxAttempts, lastErr)
 }
 
-func (g *Gemini) generateOnce(ctx context.Context, affiliate, memo string, room int, hook hookType) (string, error) {
+func (g *Gemini) generateOnce(ctx context.Context, affiliate, memo string, room int, hook hookType, shownPrice int64) (string, error) {
 	limit := room
 	if bodyMaxChars < limit {
 		limit = bodyMaxChars
 	}
 
+	// 가격은 확인된 정보로 넘겨야 factRules가 쓰는 것을 허용한다.
+	// 마감은 상세 조회에 없으므로 수동 초안은 마감을 말하지 않는다.
+	priceInfo := ""
+	if shownPrice > 0 {
+		priceInfo = fmt.Sprintf("\n확인된 가격: %d원", shownPrice)
+	}
+
 	prompt := fmt.Sprintf(`제휴사: %s
 상품 메모:
-%s
+%s%s
 
 본문은 %d자 안팎으로 쓰고 %d자를 넘기지 마라.
 네 줄, 길어도 다섯 줄이다. 줄을 늘려 설명하지 말고 덜 말해라.`,
-		affiliateKo(affiliate), memo, bodyTargetChars, limit) + hookPrompt(hook)
+		affiliateKo(affiliate), memo, priceInfo, bodyTargetChars, limit) +
+		hookPrompt(hook) + pricePrompt(shownPrice > 0, false)
 
 	raw, err := g.call(ctx, draftSystemPrompt, prompt)
 	if err != nil {
@@ -553,10 +561,11 @@ const tossSystemPrompt = `너는 스레드(Threads)에 제휴 마케팅 글을 �
 type AutoDraft struct {
 	ProductName   string
 	ProductURL    string
-	AffiliateLink string // 토스 API로 발급한 쉐어링크. 쿠팡은 비어 있다
-	TacaItemID    int64  // 토스 API로 고른 상품. 쿠팡은 0
-	ThumbnailURL  string // 토스가 준 상품 이미지 주소. 쿠팡은 비어 있다
-	ShownPrice    int64  // 본문에 쓴 가격. 0이면 가격을 쓰지 않았다
+	AffiliateLink string     // 토스 API로 발급한 쉐어링크. 쿠팡은 비어 있다
+	TacaItemID    int64      // 토스 API로 고른 상품. 쿠팡은 0
+	ThumbnailURL  string     // 토스가 준 상품 이미지 주소. 쿠팡은 비어 있다
+	ShownPrice    int64      // 본문에 쓴 가격. 0이면 가격을 쓰지 않았다
+	DealEndsAt    *time.Time // 본문이 마감을 말할 수 있는 하루특가면 그 시각
 	Body          string
 }
 
@@ -639,10 +648,17 @@ func (g *Gemini) SuggestFromTossBatch(ctx context.Context, products []TossProduc
 		}
 		b.WriteString("\n")
 	}
+	hasDeal := false
+	for _, p := range products {
+		if p.EndAt != "" {
+			hasDeal = true
+			break
+		}
+	}
 	for i, h := range hooks {
 		fmt.Fprintf(&b, "\n초안 %d: 훅은 %s이다. %s", i+1, h.Name, h.Guide)
 	}
-	b.WriteString(pricePrompt(showPrice))
+	b.WriteString(pricePrompt(showPrice, hasDeal))
 	b.WriteString(batchFormat(len(hooks)))
 
 	var picks []int
@@ -691,13 +707,20 @@ func (g *Gemini) SuggestFromTossBatch(ctx context.Context, products []TossProduc
 // 시스템 프롬프트가 아니라 요청에 두는 이유는 초안마다 다르기 때문이다.
 // 쓰기로 한 초안은 게시 직전에 가격이 그대로인지 확인하므로, 목록에 적힌
 // 값을 그대로 써야 한다. 지어낸 값은 확인할 수가 없다.
-func pricePrompt(showPrice bool) string {
+func pricePrompt(showPrice, hasDeadline bool) string {
 	if !showPrice {
 		return "\n\n가격과 할인율은 고르는 데만 쓰고 글에는 쓰지 마라. 금방 바뀐다."
 	}
-	return "\n\n고른 상품의 가격은 글에 써도 된다. 위 목록에 적힌 값을 그대로 쓰고 지어내지 마라.\n" +
-		"\"하나에 7,400원이라 일단 담았어\"처럼 사실만 말한다.\n" +
-		"\"빨리 사라\", \"지금 아니면 늦음\", \"쟁여라\" 같은 재촉은 하지 마라. 후기지 광고가 아니다."
+	s := "\n\n가격은 글에 써도 된다. 위에 적힌 값을 그대로 쓰고 지어내지 마라.\n" +
+		"\"하나에 7,400원이라 일단 담았어\"처럼 사실만 말한다.\n"
+	if hasDeadline {
+		// 마감이 실제로 있으므로 서두르라고 말해도 거짓이 아니다.
+		s += "하루특가로 표시된 상품을 골랐다면 언제까지인지도 말해도 된다.\n" +
+			"\"오늘까지더라\", \"내일이면 원래 가격\"처럼 마감을 알려주는 정도까지다.\n"
+	} else {
+		s += "마감이나 수량을 지어내지 마라. \"지금 아니면 늦음\", \"곧 끝남\"은 확인된 사실이 아니다.\n"
+	}
+	return s + "\"무조건 사\", \"쟁여라\" 같은 명령조는 쓰지 마라. 후기지 광고가 아니다."
 }
 
 // batchFormat은 요청 끝에 붙이는 출력 형식 안내다.
