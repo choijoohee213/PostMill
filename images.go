@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -30,6 +31,54 @@ const (
 	// imageTTL이 지난 사진은 지운다. 오래 방치된 초안이 DB를 채우지 않게 한다.
 	imageTTL = 10 * 24 * time.Hour
 )
+
+// productImageClient는 제휴사가 준 상품 이미지를 받아오는 클라이언트다.
+// 테스트에서 가짜 서버를 가리키도록 바꿀 수 있다.
+var productImageClient = &http.Client{Timeout: 30 * time.Second}
+
+// addProductImage는 제휴사가 준 상품 이미지를 받아 초안에 붙인다.
+//
+// 주소를 저장해 두고 게시할 때 받지 않는다. 토스가 주는 주소에는 temp 경로가
+// 있어 만료될 수 있고, 게시 시점에 실패하면 사진 없이 올라가기 때문이다.
+// 바이트로 갖고 있으면 그 뒤로는 수동으로 올린 사진과 완전히 같다.
+//
+// 사진은 글의 부속이라 실패해도 초안을 막지 않는다. 사유만 남기고 넘어간다.
+func (a *app) addProductImage(ctx context.Context, userID string, postID int64, url string) {
+	if url == "" {
+		return
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		log.Printf("상품 이미지 요청 생성 실패 (id=%d): %v", postID, err)
+		return
+	}
+	resp, err := productImageClient.Do(req)
+	if err != nil {
+		log.Printf("상품 이미지 받기 실패 (id=%d): %v", postID, err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("상품 이미지 받기 실패 (id=%d): HTTP %d", postID, resp.StatusCode)
+		return
+	}
+
+	// 상한을 넘는지 보려면 한 바이트 더 읽어야 한다.
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxImageBytes+1))
+	if err != nil {
+		log.Printf("상품 이미지 읽기 실패 (id=%d): %v", postID, err)
+		return
+	}
+	contentType, err := validateImage(data)
+	if err != nil {
+		log.Printf("상품 이미지를 쓸 수 없다 (id=%d): %v", postID, err)
+		return
+	}
+	if err := a.db.AddImage(ctx, userID, postID, rand.Text(), contentType, data); err != nil {
+		log.Printf("상품 이미지 저장 실패 (id=%d): %v", postID, err)
+	}
+}
 
 // validateImage는 Threads가 받는 사진인지 본다: JPEG·PNG, 가로 320~1440px, 비율 10:1 이내.
 // 반환값은 저장할 Content-Type이다.
