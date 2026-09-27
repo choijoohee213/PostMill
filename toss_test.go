@@ -42,9 +42,28 @@ type fakeTossServer struct {
 	detailsByID  map[int64]ProductDetail  // 상세 조회에 돌려줄 상품 (tacaItemId 또는 tacaId 키)
 	detailParams []string
 
-	subTagList   []string
 	perfBySubTag map[string]string // perfPages가 없을 때 subTagId별로 돌려줄 success JSON ("" = 전체)
 	settleBySub  map[string]int64
+}
+
+// useToss는 이 가짜 토스 서버를 userIDs가 등록한 자기 키인 것처럼 붙여 준다.
+// 토스 키는 사용자마다 등록해서 쓰므로, 테스트도 키를 넣어야 토스를 부른다.
+func useToss(t *testing.T, a *app, f *fakeTossServer, userIDs ...string) *Toss {
+	t.Helper()
+	api := f.client(t)
+	a.newToss = func(_, _, _ string) *Toss { return api }
+
+	ctx := context.Background()
+	a.db.ClearTossToken(ctx, api.PublisherID)
+	t.Cleanup(func() { a.db.ClearTossToken(ctx, api.PublisherID) })
+	for _, u := range userIDs {
+		k := &TossKey{UserID: u, AccessKey: "ak", SecretKey: "sk", PublisherID: api.PublisherID}
+		if err := a.db.SetTossKey(ctx, k); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { a.db.DeleteTossKey(ctx, u) })
+	}
+	return api
 }
 
 func (f *fakeTossServer) client(t *testing.T) *Toss {
@@ -136,12 +155,6 @@ func (f *fakeTossServer) client(t *testing.T) *Toss {
 			fmt.Fprintf(w, `{"resultType":"SUCCESS","success":%s}`, page)
 		case "/categories":
 			success(map[string]any{"categories": f.categories})
-		case "/sub-tags":
-			var list []map[string]string
-			for _, id := range f.subTagList {
-				list = append(list, map[string]string{"subTagId": id})
-			}
-			success(map[string]any{"subTags": list, "hasNext": false})
 		default:
 			if strings.HasPrefix(r.URL.Path, "/products/best-categories/") {
 				f.listCalls++
@@ -316,9 +329,8 @@ func TestSuggest_토스는_고른_상품의_쉐어링크까지_넣는다(t *test
 	f := &fakeTossServer{best: []TossProduct{
 		{TacaItemID: 42, DisplayName: "토스테스트 무선 청소기", ProductURL: "https://toss.shopping/t/42"},
 	}}
-	a := &app{db: db, gemini: tossGemini(t), toss: f.client(t)}
-	// 다른 테스트가 남긴 토큰을 쓰지 않게 비운다.
-	db.ClearTossToken(ctx, "pub-uuid")
+	a := &app{db: db, gemini: tossGemini(t)}
+	useToss(t, a, f, user)
 
 	id, _ := db.CreateDraft(ctx, user, AffiliateToss, "", "", "")
 	t.Cleanup(func() { db.DeletePost(ctx, user, id) })
@@ -367,7 +379,8 @@ func TestSuggest_토스_API가_거부하면_이유를_남긴다(t *testing.T) {
 		best:     []TossProduct{{TacaItemID: 1, DisplayName: "토스테스트 거부"}},
 		linkFail: tossAccessDenied,
 	}
-	a := &app{db: db, gemini: tossGemini(t), toss: f.client(t)}
+	a := &app{db: db, gemini: tossGemini(t)}
+	useToss(t, a, f, user)
 	id, _ := db.CreateDraft(ctx, user, AffiliateToss, "", "", "")
 	t.Cleanup(func() { db.DeletePost(ctx, user, id) })
 
@@ -499,10 +512,12 @@ func TestTossUnavailableReason(t *testing.T) {
 	db := openTestDB(t)
 	ctx := context.Background()
 	f := &fakeTossServer{soldOut: map[int64]bool{11: true}, gone: map[int64]bool{12: true}}
-	a := &app{db: db, toss: f.client(t)}
+	a := &app{db: db}
+	const user = "unavail"
+	useToss(t, a, f, user)
 
 	post := func(item int64, auto bool) *Post {
-		return &Post{Affiliate: AffiliateToss, LinkAuto: auto, TacaItemID: item}
+		return &Post{UserID: user, Affiliate: AffiliateToss, LinkAuto: auto, TacaItemID: item}
 	}
 	if r := a.tossUnavailableReason(ctx, post(11, true)); !strings.Contains(r, "품절") {
 		t.Errorf("품절 상품: %q", r)
@@ -536,10 +551,12 @@ func TestTossUnavailableReason_가격이_바뀌면_막는다(t *testing.T) {
 	f := &fakeTossServer{detailsByID: map[int64]ProductDetail{
 		21: {TacaItemID: 21, DisplayPrice: 7400},
 	}}
-	a := &app{db: db, toss: f.client(t)}
+	a := &app{db: db}
+	const user = "unavail-price"
+	useToss(t, a, f, user)
 
 	post := func(shown int64) *Post {
-		return &Post{Affiliate: AffiliateToss, LinkAuto: true, TacaItemID: 21, ShownPrice: shown}
+		return &Post{UserID: user, Affiliate: AffiliateToss, LinkAuto: true, TacaItemID: 21, ShownPrice: shown}
 	}
 
 	if r := a.tossUnavailableReason(ctx, post(7400)); r != "" {
@@ -560,7 +577,9 @@ func TestTossUnavailableReason_특가가_끝나면_막는다(t *testing.T) {
 	db := openTestDB(t)
 	ctx := context.Background()
 	f := &fakeTossServer{}
-	a := &app{db: db, toss: f.client(t)}
+	a := &app{db: db}
+	const user = "unavail-deal"
+	useToss(t, a, f, user)
 
 	past := time.Now().Add(-time.Hour)
 	future := time.Now().Add(time.Hour)
@@ -624,10 +643,10 @@ func TestPublishHandler_품절된_토스_상품은_게시하지_않는다(t *tes
 	defer threads.Close()
 	a := newTestApp(t, threads)
 	f := &fakeTossServer{soldOut: map[int64]bool{77: true}}
-	a.toss = f.client(t)
 	ctx := context.Background()
 
 	const user = "toss-soldout"
+	useToss(t, a, f, user)
 	a.db.SaveThreadsUser(ctx, ThreadsUser{UserID: user, AccessToken: "tok", ExpiresAt: nowPlusDays(30)})
 	id, _ := a.db.CreateDraft(ctx, user, AffiliateToss, "", "", "")
 	t.Cleanup(func() { a.db.DeletePost(ctx, user, id) })
@@ -647,86 +666,6 @@ func TestPublishHandler_품절된_토스_상품은_게시하지_않는다(t *tes
 	}
 	if p, _ := a.db.GetPost(ctx, user, id); p.Status != StatusPending {
 		t.Fatalf("상태=%s, 게시를 시작하면 안 된다", p.Status)
-	}
-}
-
-// 주인 계정은 subTag 없이 발급한 옛 링크까지 제 몫이다. 전체에서 다른 계정 몫을 뺀다.
-func TestAccountStats_주인은_전체에서_다른_계정을_뺀다(t *testing.T) {
-	db := openTestDB(t)
-	ctx := context.Background()
-	orig, _, _ := db.GetState(ctx, stateTossOwner)
-	db.SetState(ctx, stateTossOwner, "owner")
-	t.Cleanup(func() { db.SetState(ctx, stateTossOwner, orig) })
-
-	f := &fakeTossServer{
-		subTagList: []string{"u-owner", "u-sister"},
-		perfBySubTag: map[string]string{
-			"": `{"summary":{"clickCount":100,"soldQuantity":10,"expectedCommissionAmount":1000},"items":[
-				{"productId":1,"attribution":"DIRECT","soldQuantity":6,"expectedCommissionAmount":600},
-				{"productId":2,"attribution":"DIRECT","soldQuantity":4,"expectedCommissionAmount":400}]}`,
-			"u-sister": `{"summary":{"clickCount":30,"soldQuantity":4,"expectedCommissionAmount":400},"items":[
-				{"productId":2,"attribution":"DIRECT","soldQuantity":4,"expectedCommissionAmount":400}]}`,
-		},
-		settleBySub: map[string]int64{"": 5000, "u-sister": 1200},
-	}
-	a := &app{db: db, toss: f.client(t)}
-	from := time.Date(2026, 9, 1, 0, 0, 0, 0, kst)
-	// 공용 키로 부르는 경우다. 여러 명이 한 거래처를 나눠 쓴다.
-	c := &tossConn{api: a.toss, token: "tok"}
-
-	perf, settled, err := a.accountStats(ctx, c, "owner", from, from, "2026-09")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if perf.Summary.ClickCount != 70 || perf.Summary.SoldQuantity != 6 || perf.Summary.ExpectedCommissionAmount != 600 || settled != 3800 {
-		t.Fatalf("주인 실적=%+v 정산=%d", perf.Summary, settled)
-	}
-	if len(perf.Items) != 1 || perf.Items[0].ProductID != 1 {
-		t.Fatalf("주인 상품=%+v, 동생 몫 상품은 빠져야 한다", perf.Items)
-	}
-
-	sister, settled, err := a.accountStats(ctx, c, "sister", from, from, "2026-09")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if sister.Summary.SoldQuantity != 4 || settled != 1200 {
-		t.Fatalf("다른 계정 실적=%+v 정산=%d", sister.Summary, settled)
-	}
-
-	// subTag를 아직 등록하지 않은 계정은 토스에 묻지 않고 0이다 (묻으면 거절된다).
-	before := len(f.perfQueries)
-	none, settled, err := a.accountStats(ctx, c, "newbie", from, from, "2026-09")
-	if err != nil || none.Summary.SoldQuantity != 0 || settled != 0 || len(f.perfQueries) != before {
-		t.Fatalf("미등록 계정 실적=%+v 정산=%d err=%v 조회=%d번", none.Summary, settled, err, len(f.perfQueries)-before)
-	}
-}
-
-func TestTossOwner_처음_토스_글을_쓴_계정을_기억한다(t *testing.T) {
-	db := openTestDB(t)
-	ctx := context.Background()
-	orig, _, _ := db.GetState(ctx, stateTossOwner)
-	db.SetState(ctx, stateTossOwner, "")
-	t.Cleanup(func() { db.SetState(ctx, stateTossOwner, orig) })
-
-	first, _ := db.CreateDraft(ctx, "owner-first", AffiliateToss, "", "", "")
-	t.Cleanup(func() { db.DeletePost(ctx, "owner-first", first) })
-	second, _ := db.CreateDraft(ctx, "owner-second", AffiliateToss, "", "", "")
-	t.Cleanup(func() { db.DeletePost(ctx, "owner-second", second) })
-
-	a := &app{db: db}
-	owner, err := a.tossOwner(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// 테스트 DB에 더 오래된 토스 글이 없다면 처음 만든 계정이 주인이다.
-	if want, _ := db.FirstTossAuthor(ctx); owner != want {
-		t.Fatalf("주인=%q, %q여야 한다", owner, want)
-	}
-
-	// 옛 글을 지워도 주인은 바뀌지 않는다.
-	db.DeletePost(ctx, "owner-first", first)
-	if again, _ := a.tossOwner(ctx); again != owner {
-		t.Fatalf("글을 지우자 주인이 %q에서 %q로 바뀌었다", owner, again)
 	}
 }
 
@@ -858,25 +797,28 @@ func TestResumeStuck_끊긴_게시를_이어서_마치고_오래되면_정리한
 	}
 }
 
-// 자기 키를 등록한 사용자는 그 거래처가 통째로 자기 것이다. 남의 몫을 뺄 일도,
-// subTag가 등록됐는지 볼 일도 없다.
-func TestAccountStats_자기_키는_거래처_전체가_제_몫이다(t *testing.T) {
+// 토스 키는 사람마다 자기 것이므로, 그 거래처의 실적과 정산은 통째로 제 몫이다.
+func TestAccountStats_거래처_전체가_제_몫이다(t *testing.T) {
 	db := openTestDB(t)
 	ctx := context.Background()
 
 	f := &fakeTossServer{
-		subTagList: []string{"u-other"},
 		perfBySubTag: map[string]string{
 			"": `{"summary":{"clickCount":100,"soldQuantity":10,"expectedCommissionAmount":1000},"items":[
 				{"productId":1,"attribution":"DIRECT","soldQuantity":10,"expectedCommissionAmount":1000}]}`,
 		},
 		settleBySub: map[string]int64{"": 5000},
 	}
-	a := &app{db: db, toss: f.client(t)}
-	c := &tossConn{api: a.toss, token: "tok", own: true}
-	from := time.Date(2026, 9, 1, 0, 0, 0, 0, kst)
+	a := &app{db: db}
+	const user = "sister"
+	useToss(t, a, f, user)
 
-	perf, settled, err := a.accountStats(ctx, c, "sister", from, from, "2026-09")
+	c, err := a.tossConnFor(ctx, user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	from := time.Date(2026, 9, 1, 0, 0, 0, 0, kst)
+	perf, settled, err := a.accountStats(ctx, c, from, from, "2026-09")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -885,64 +827,58 @@ func TestAccountStats_자기_키는_거래처_전체가_제_몫이다(t *testing
 	}
 }
 
-// 자기 키를 등록하면 그 키로 붙고, 지우면 공용 키로 돌아간다.
-func TestTossConnFor_자기_키가_있으면_그_키로_붙는다(t *testing.T) {
+// 키를 등록해야 토스를 쓸 수 있고, 지우면 다시 쓸 수 없다.
+func TestTossConnFor_키를_등록해야_붙는다(t *testing.T) {
 	db := openTestDB(t)
 	ctx := context.Background()
 	const user = "own-key"
 
-	shared := &fakeTossServer{}
-	a := &app{db: db, toss: shared.client(t)}
+	f := &fakeTossServer{}
+	a := &app{db: db}
+	api := f.client(t)
+	a.newToss = func(_, _, _ string) *Toss { return api }
+
+	if _, err := a.tossConnFor(ctx, user); err != errNoTossKey {
+		t.Fatalf("키가 없으면 errNoTossKey여야 한다: %v", err)
+	}
+	if a.tossAPIFor(ctx, user) != nil {
+		t.Error("키가 없으면 토스 기능을 보여주지 않는다")
+	}
+
+	k := &TossKey{UserID: user, AccessKey: "ak", SecretKey: "sk", PublisherID: api.PublisherID}
+	if err := db.SetTossKey(ctx, k); err != nil {
+		t.Fatal(err)
+	}
+	db.ClearTossToken(ctx, api.PublisherID)
+	t.Cleanup(func() {
+		db.DeleteTossKey(ctx, user)
+		db.ClearTossToken(ctx, api.PublisherID)
+	})
 
 	c, err := a.tossConnFor(ctx, user)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.own || c.api.PublisherID != "pub-uuid" {
-		t.Fatalf("키가 없으면 공용이어야 한다: own=%v pub=%q", c.own, c.api.PublisherID)
-	}
-
-	// 등록한 키는 거래처가 다르다. 토큰도 거래처마다 따로 받아 둔다.
-	mine := &fakeTossServer{}
-	api := mine.client(t)
-	api.PublisherID = "pub-sister"
-	t.Cleanup(func() {
-		db.DeleteTossKey(ctx, user)
-		db.ClearTossToken(ctx, "pub-sister")
-	})
-
-	conn, err := a.connToken(ctx, api, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !conn.own || conn.token == "" {
-		t.Fatalf("자기 키 연결=%+v", conn)
-	}
-	if subTagKey(conn, "u-"+user) == subTagKey(c, "u-"+user) {
-		t.Error("키가 다르면 subTag 기억도 달라야 한다")
+	if c.api.PublisherID != api.PublisherID || c.token == "" {
+		t.Fatalf("연결=%+v", c)
 	}
 
 	// 받아 둔 토큰은 거래처별로 남아, 다음에는 다시 받지 않는다.
-	again, err := a.connToken(ctx, api, true)
-	if err != nil || again.token != conn.token || mine.tokenCalls != 1 {
-		t.Fatalf("토큰=%q 발급 %d번, 한 번만 받아야 한다", again.token, mine.tokenCalls)
+	again, err := a.tossConnFor(ctx, user)
+	if err != nil || again.token != c.token || f.tokenCalls != 1 {
+		t.Fatalf("토큰=%q 발급 %d번, 한 번만 받아야 한다", again.token, f.tokenCalls)
 	}
 
-	// 키를 등록하면 tossConnFor가 그 키를 고른다.
-	k := &TossKey{UserID: user, AccessKey: "ak", SecretKey: "sk", PublisherID: "pub-sister"}
-	if err := db.SetTossKey(ctx, k); err != nil {
-		t.Fatal(err)
-	}
-	got, ok := a.tossAPIFor(ctx, user)
-	if !ok || got.PublisherID != "pub-sister" {
-		t.Fatalf("키를 등록하면 그 키여야 한다: ok=%v pub=%q", ok, got.PublisherID)
+	// subTag 기억은 거래처마다 따로다. 같은 subTag라도 키가 다르면 등록된 계정이 다르다.
+	other := &tossConn{api: NewToss("ak", "sk", "pub-other")}
+	if subTagKey(c, "u-"+user) == subTagKey(other, "u-"+user) {
+		t.Error("거래처가 다르면 subTag 기억도 달라야 한다")
 	}
 
-	// 지우면 공용으로 돌아간다.
 	if err := db.DeleteTossKey(ctx, user); err != nil {
 		t.Fatal(err)
 	}
-	if got, own := a.tossAPIFor(ctx, user); own || got.PublisherID != "pub-uuid" {
-		t.Fatalf("키를 지우면 공용이어야 한다: own=%v pub=%q", own, got.PublisherID)
+	if _, err := a.tossConnFor(ctx, user); err != errNoTossKey {
+		t.Fatalf("키를 지우면 쓸 수 없어야 한다: %v", err)
 	}
 }

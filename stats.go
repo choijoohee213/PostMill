@@ -47,8 +47,7 @@ type statsRow struct {
 // handleStats는 내 스레드 계정의 토스 쉐어링크 실적을 월 단위로 보여준다.
 func (a *app) handleStats(w http.ResponseWriter, r *http.Request) {
 	userID := a.session.userID(r)
-	api, _ := a.tossAPIFor(r.Context(), userID)
-	data := statsData{Enabled: api != nil}
+	data := statsData{Enabled: a.tossAPIFor(r.Context(), userID) != nil}
 	if !data.Enabled {
 		a.render(w, "stats.html", data)
 		return
@@ -81,7 +80,7 @@ func (a *app) handleStats(w http.ResponseWriter, r *http.Request) {
 
 	c, err := a.tossConnFor(r.Context(), userID)
 	if err == nil {
-		data.Perf, data.Settled, err = a.accountStats(r.Context(), c, userID, from, to, data.Month)
+		data.Perf, data.Settled, err = a.accountStats(r.Context(), c, from, to, data.Month)
 	}
 	if err != nil {
 		a.forget(r.Context(), c, err)
@@ -100,122 +99,20 @@ func (a *app) handleStats(w http.ResponseWriter, r *http.Request) {
 	a.render(w, "stats.html", data)
 }
 
-// stateTossOwner는 계정 구분(subTag) 없이 발급된 링크의 실적을 가져가는 계정이다.
-// subTag를 붙이기 전에는 한 계정만 토스를 썼으므로 그 계정의 몫으로 본다.
-const stateTossOwner = "toss_untagged_owner"
+// 토스 키는 사람마다 자기 것을 등록해서 쓴다. 그래서 그 거래처의 실적과 정산은
+// 통째로 그 사람 몫이다. subTag로 나눠 셀 일도, 다른 계정 몫을 뺄 일도 없다.
 
-// tossOwner는 처음 토스 글을 만든 계정을 주인으로 정하고 기억한다.
-// 기억해 두지 않으면 옛 글을 지웠을 때 주인이 바뀔 수 있다.
-func (a *app) tossOwner(ctx context.Context) (string, error) {
-	if owner, ok, err := a.db.GetState(ctx, stateTossOwner); err != nil || (ok && owner != "") {
-		return owner, err
-	}
-	owner, err := a.db.FirstTossAuthor(ctx)
-	if err != nil || owner == "" {
-		return owner, err
-	}
-	return owner, a.db.SetState(ctx, stateTossOwner, owner)
-}
-
-// accountView는 한 계정의 실적을 어떻게 구할지다.
-//
-// 보통은 그 계정 subTag의 실적이다. 주인 계정은 subTag 없이 발급한 옛 링크까지
-// 제 몫이므로, 거래처 전체에서 다른 계정 subTag의 실적을 뺀 값을 쓴다.
-// 등록되지 않은 subTag로 조회하면 토스가 거절하므로 등록된 것만 조회한다.
-type accountView struct {
-	owner      bool
-	mine       string   // 이 계정의 subTag
-	registered bool     // mine이 토스에 등록돼 있는지
-	others     []string // 주인일 때 빼야 할 다른 계정 subTag
-}
-
-func (a *app) accountViewFor(ctx context.Context, c *tossConn, userID string) (*accountView, error) {
-	// 자기 키로 부르면 그 거래처가 통째로 자기 것이다. 남의 몫을 뺄 일이 없다.
-	if c.own {
-		return &accountView{owner: true, mine: tossSubTag(userID), registered: true}, nil
-	}
-
-	tags, err := c.api.ListSubTags(ctx, c.token)
-	if err != nil {
-		return nil, err
-	}
-	owner, err := a.tossOwner(ctx)
-	if err != nil {
-		return nil, err
-	}
-	v := &accountView{owner: userID == owner, mine: tossSubTag(userID)}
-	for _, tag := range tags {
-		if tag == v.mine {
-			v.registered = true
-		} else {
-			v.others = append(v.others, tag)
-		}
-	}
-	return v, nil
-}
-
-// accountPerformance는 한 계정의 기간 실적이다.
-func (a *app) accountPerformance(ctx context.Context, c *tossConn, userID string, from, to time.Time) (*Performance, error) {
-	v, err := a.accountViewFor(ctx, c, userID)
-	if err != nil {
-		return nil, err
-	}
-	return a.performanceFor(ctx, c, v, from, to)
-}
-
-func (a *app) performanceFor(ctx context.Context, c *tossConn, v *accountView, from, to time.Time) (*Performance, error) {
-	if !v.owner {
-		if !v.registered {
-			return &Performance{}, nil
-		}
-		return c.api.Performance(ctx, c.token, from, to, v.mine)
-	}
-	perf, err := c.api.Performance(ctx, c.token, from, to, "")
-	if err != nil {
-		return nil, err
-	}
-	for _, tag := range v.others {
-		other, err := c.api.Performance(ctx, c.token, from, to, tag)
-		if err != nil {
-			return nil, err
-		}
-		subtractPerf(perf, other)
-	}
-	return perf, nil
-}
-
-func (a *app) settledFor(ctx context.Context, c *tossConn, v *accountView, month string) (int64, error) {
-	if !v.owner {
-		if !v.registered {
-			return 0, nil
-		}
-		return c.api.SettledCommission(ctx, c.token, month, v.mine)
-	}
-	settled, err := c.api.SettledCommission(ctx, c.token, month, "")
-	if err != nil {
-		return 0, err
-	}
-	for _, tag := range v.others {
-		other, err := c.api.SettledCommission(ctx, c.token, month, tag)
-		if err != nil {
-			return 0, err
-		}
-		settled -= other
-	}
-	return settled, nil
+func (a *app) accountPerformance(ctx context.Context, c *tossConn, from, to time.Time) (*Performance, error) {
+	return c.api.Performance(ctx, c.token, from, to, "")
 }
 
 // accountStats는 한 계정의 실적과 정산 확정 수익금을 구한다.
-func (a *app) accountStats(ctx context.Context, c *tossConn, userID string, from, to time.Time, month string) (*Performance, int64, error) {
-	v, err := a.accountViewFor(ctx, c, userID)
+func (a *app) accountStats(ctx context.Context, c *tossConn, from, to time.Time, month string) (*Performance, int64, error) {
+	perf, err := a.accountPerformance(ctx, c, from, to)
 	if err != nil {
 		return nil, 0, err
 	}
-	perf, err := a.performanceFor(ctx, c, v, from, to)
-	if err != nil {
-		return nil, 0, err
-	}
-	settled, err := a.settledFor(ctx, c, v, month)
+	settled, err := c.api.SettledCommission(ctx, c.token, month, "")
 	return perf, settled, err
 }
 

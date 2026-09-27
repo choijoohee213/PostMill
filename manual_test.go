@@ -15,10 +15,6 @@ import (
 func TestTossProducts_고른_곳에서_상품을_가져온다(t *testing.T) {
 	db := openTestDB(t)
 	ctx := context.Background()
-	orig, _, _ := db.GetState(ctx, stateTossOwner)
-	db.SetState(ctx, stateTossOwner, "src-owner")
-	t.Cleanup(func() { db.SetState(ctx, stateTossOwner, orig) })
-
 	f := &fakeTossServer{
 		best:  []TossProduct{{TacaItemID: 1, DisplayName: "베스트"}},
 		deals: []TossProduct{{TacaItemID: 2, DisplayName: "특가", EndAt: "2099-01-01T00:00:00+09:00"}},
@@ -26,7 +22,6 @@ func TestTossProducts_고른_곳에서_상품을_가져온다(t *testing.T) {
 			"10": {{TacaItemID: 10, DisplayName: "주방1"}, {TacaItemID: 11, DisplayName: "주방2"}},
 			"20": {{TacaItemID: 20, DisplayName: "청소1"}},
 		},
-		subTagList: []string{"u-src-owner"},
 		perfBySubTag: map[string]string{"": `{"summary":{},"items":[
 			{"productId":501,"attribution":"DIRECT","soldQuantity":1},
 			{"productId":502,"attribution":"DIRECT","soldQuantity":5}]}`},
@@ -35,7 +30,8 @@ func TestTossProducts_고른_곳에서_상품을_가져온다(t *testing.T) {
 			502: {TacaItemID: 502, CategoryIDs: []int64{1, 10}},
 		},
 	}
-	a := &app{db: db, toss: f.client(t)}
+	a := &app{db: db}
+	useToss(t, a, f, "src-owner")
 
 	c, err := a.tossConnFor(ctx, "src-owner")
 	if err != nil {
@@ -87,8 +83,9 @@ func TestTossCategoryTree_모든_단계를_넘긴다(t *testing.T) {
 		}},
 		{CategoryID: 2, DisplayName: "도서"},
 	}}
-	a := &app{db: db, toss: f.client(t)}
+	a := &app{db: db}
 	ctx := context.Background()
+	useToss(t, a, f, "cat-tree")
 	c, err := a.tossConnFor(ctx, "cat-tree")
 	if err != nil {
 		t.Fatalf("연결 실패: %v", err)
@@ -100,7 +97,7 @@ func TestTossCategoryTree_모든_단계를_넘긴다(t *testing.T) {
 	if a.tossCategoryTree(ctx, nil) != nil {
 		t.Error("토스 API가 없으면 비어야 한다")
 	}
-	if _, err := (&app{db: db}).tossConnFor(ctx, "no-key"); err != errNoTossKey {
+	if _, err := a.tossConnFor(ctx, "no-key"); err != errNoTossKey {
 		t.Errorf("키가 없으면 errNoTossKey여야 한다: %v", err)
 	}
 }
@@ -118,8 +115,9 @@ func TestTossProducts_랭킹이_빈_카테고리는_상위에서_고른다(t *te
 		},
 		catBest: map[string][]TossProduct{"10": {{TacaItemID: 10, DisplayName: "주방 베스트"}}},
 	}
-	a := &app{db: db, toss: f.client(t)}
+	a := &app{db: db}
 	ctx := context.Background()
+	useToss(t, a, f, "u")
 
 	c, err := a.tossConnFor(ctx, "u")
 	if err != nil {
@@ -187,7 +185,9 @@ func TestManualMemo(t *testing.T) {
 	}
 }
 
-func manualApp(t *testing.T, f *fakeTossServer) *app {
+// manualApp은 수동 입력 화면을 띄우는 앱이다. tossUsers로 넘긴 사용자는
+// 가짜 토스 서버를 자기 키로 등록한 것이 된다.
+func manualApp(t *testing.T, f *fakeTossServer, tossUsers ...string) *app {
 	t.Helper()
 	g, _ := fakeGemini(t, func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, okBody("본문이야"))
@@ -195,7 +195,7 @@ func manualApp(t *testing.T, f *fakeTossServer) *app {
 	a := &app{db: openTestDB(t), gemini: g, session: testSession(),
 		tpl: template.Must(template.New("").Funcs(templateFuncs).ParseFS(templateFS, "templates/*.html"))}
 	if f != nil {
-		a.toss = f.client(t)
+		useToss(t, a, f, tossUsers...)
 	}
 	return a
 }
@@ -240,7 +240,7 @@ func TestManualSubmit_토스는_링크만으로_상품과_쉐어링크를_채운
 	f := &fakeTossServer{detailsByID: map[int64]ProductDetail{
 		9876: {TacaItemID: 12345, TacaID: 9876, DisplayName: "토스 무선 청소기", ProductURL: "https://toss.shopping/t/9876"},
 	}}
-	a := manualApp(t, f)
+	a := manualApp(t, f, "manual-toss")
 	const user = "manual-toss"
 
 	w := postManual(t, a, user, url.Values{"affiliate": {"toss"}, "product_link": {"https://toss.shopping/t/9876"}})
@@ -268,7 +268,7 @@ func TestManualSubmit_토스는_링크만으로_상품과_쉐어링크를_채운
 
 func TestManualSubmit_잘못된_입력은_목록에_이유를_보여준다(t *testing.T) {
 	f := &fakeTossServer{gone: map[int64]bool{1: true}}
-	a := manualApp(t, f)
+	a := manualApp(t, f, "manual-bad")
 
 	cases := []struct {
 		form url.Values
@@ -311,7 +311,7 @@ func TestHandleAuto_토스_카테고리를_고르면_그_카테고리에서_고�
 		best:    []TossProduct{{TacaItemID: 1, DisplayName: "베스트상품"}},
 		catBest: map[string][]TossProduct{"10": {{TacaItemID: 10, DisplayName: "주방A"}, {TacaItemID: 11, DisplayName: "주방B"}, {TacaItemID: 12, DisplayName: "주방C"}}},
 	}
-	a := manualApp(t, f)
+	a := manualApp(t, f, "auto-cat")
 	a.gemini, _ = fakeGemini(t, func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, okBody("1\n---\n본문\n=====\n2\n---\n본문\n=====\n3\n---\n본문"))
 	})

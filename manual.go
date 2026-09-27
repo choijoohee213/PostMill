@@ -45,7 +45,7 @@ func (a *app) handleManualSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	d := ManualDraft{Affiliate: form.Affiliate, Memo: form.Memo}
-	tossAPI, _ := a.tossAPIFor(r.Context(), userID)
+	tossAPI := a.tossAPIFor(r.Context(), userID)
 	if form.Affiliate == AffiliateToss && tossAPI != nil {
 		if form.ProductLink == "" {
 			fail("토스 상품 링크를 붙여넣어 주세요.")

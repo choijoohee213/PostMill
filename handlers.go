@@ -168,7 +168,7 @@ func (a *app) renderList(w http.ResponseWriter, r *http.Request, extra listExtra
 		query = strings.TrimSpace(r.URL.Query().Get("q"))
 	}
 
-	tossAPI, _ := a.tossAPIFor(r.Context(), a.session.userID(r))
+	tossAPI := a.tossAPIFor(r.Context(), a.session.userID(r))
 	posts, err := a.db.ListByStatus(r.Context(), a.session.userID(r), query, current.Statuses...)
 	if err != nil {
 		log.Printf("목록 조회 실패: %v", err)

@@ -167,7 +167,7 @@ func (a *app) suggest(ids []int64, userID, affiliate string, avoid []string, sou
 
 	drafts := make([]*AutoDraft, len(ids))
 	fails := make([]error, len(ids))
-	tossAPI, _ := a.tossAPIFor(ctx, userID)
+	tossAPI := a.tossAPIFor(ctx, userID)
 	if affiliate == AffiliateToss && tossAPI != nil {
 		drafts, fails = a.suggestToss(ctx, userID, source, avoid, specs, showPrice)
 	} else {

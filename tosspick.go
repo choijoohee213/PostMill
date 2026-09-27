@@ -130,7 +130,7 @@ func (a *app) tossProducts(ctx context.Context, c *tossConn, userID, source stri
 // 기준이 없으므로 베스트에서 고른다.
 func (a *app) mineProducts(ctx context.Context, c *tossConn, userID string) ([]TossProduct, error) {
 	to := time.Now().In(kst)
-	perf, err := a.accountPerformance(ctx, c, userID, to.AddDate(0, 0, -(tossMineDays-1)), to)
+	perf, err := a.accountPerformance(ctx, c, to.AddDate(0, 0, -(tossMineDays-1)), to)
 	if err != nil {
 		return nil, err
 	}
@@ -320,8 +320,9 @@ func tossCandidates(products []TossProduct, avoid []string, now time.Time) []Tos
 // errNoTossCandidates는 고를 상품이 하나도 남지 않은 경우다.
 var errNoTossCandidates = errors.New("고를 만한 토스 상품이 없다")
 
-// tossSubTag는 PostMill 사용자(스레드 계정)의 subTag다. 토스 키는 사업자당
-// 하나라 여러 명이 쓰면 실적이 섞이므로, 링크를 계정별 subTag로 발급해 나눈다.
+// tossSubTag는 PostMill 사용자(스레드 계정)의 subTag다. 키는 사람마다 자기
+// 것을 쓰므로 실적을 나누는 데는 쓰지 않지만, 토스 어드민에서 이 링크가 어디서
+// 나갔는지 알아볼 수 있게 붙여 둔다.
 // 스레드 사용자 id는 숫자이고 관리자는 "admin"이라 허용 문자 규칙에 맞는다.
 func tossSubTag(userID string) string { return "u-" + userID }
 

@@ -20,30 +20,24 @@
 
 <section class="panel">
   <h2 class="panel-title">토스 쉐어링크 키</h2>
-  {{if .OwnToss}}
-    <p class="panel-status">내 키로 발급 중</p>
+  {{if .TossPublisher}}
+    <p class="panel-status">연결됨</p>
     <p class="hint">
       거래처 {{.TossPublisher}}. 이 계정으로 쉐어링크가 발급되고, 수익도 토스가 이 계정에
       직접 정산합니다.
     </p>
     <form method="post" action="/settings/toss/delete"
-          onsubmit="return confirm('키를 지우면 앞으로는 공용 키로 발급되어 수익이 그쪽으로 갑니다. 계속할까요?')">
+          onsubmit="return confirm('키를 지우면 토스 상품을 고르거나 쉐어링크를 발급할 수 없습니다. 계속할까요?')">
       <div class="actions">
         <button class="btn btn-small btn-danger" type="submit">키 지우기</button>
       </div>
     </form>
   {{else}}
-    {{if .SharedToss}}
-    <p class="panel-status panel-status-off">공용 키로 발급 중</p>
-    <p class="hint">
-      쉐어링크가 서버 공용 계정으로 발급되어, <b>수익도 그 계정으로 정산됩니다.</b>
-      실적은 계정별로 나눠 보이지만 돈은 한곳으로 모입니다.
-      자기 키를 넣으면 토스가 직접 정산합니다.
-    </p>
-    {{else}}
     <p class="panel-status panel-status-off">연결되지 않음</p>
-    <p class="hint">키를 넣으면 토스 상품을 골라 쉐어링크까지 자동으로 발급합니다.</p>
-    {{end}}
+    <p class="hint">
+      키를 넣으면 토스 상품을 골라 쉐어링크까지 자동으로 발급합니다.
+      쉐어링크는 <b>내 계정으로</b> 발급되고 수익도 토스가 직접 정산합니다.
+    </p>
 
     <form class="form" method="post" action="/settings/toss">
       <label class="field">

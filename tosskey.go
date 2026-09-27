@@ -10,57 +10,54 @@ import (
 	"time"
 )
 
-// tossConn은 한 사용자가 쓸 토스 연결이다. 어느 키로 부르는지(api)와 그 키로
-// 받아 둔 토큰(token)을 함께 들고 다닌다.
+// tossConn은 한 사용자의 토스 연결이다. 그 사람의 키로 만든 클라이언트(api)와
+// 그 키로 받아 둔 토큰(token)을 함께 들고 다닌다.
 //
-// 토스 키는 사업자당 하나라, 한 키를 여러 명이 쓰면 링크도 정산도 그 한 계정으로
-// 모인다. 자기 키를 등록한 사용자는 자기 계정으로 발급되어 토스가 그 사람에게
-// 직접 정산한다. 등록하지 않았으면 서버 공용 키(환경변수)를 쓴다.
+// 토스 키는 사업자당 하나다. 한 키를 여럿이 나눠 쓰면 링크도 정산도 그 한
+// 계정으로 모이므로, 키는 사용자마다 자기 것을 등록해서 쓴다.
 type tossConn struct {
 	api   *Toss
 	token string
-	own   bool // 사용자가 등록한 자기 키인지
 }
 
-// errNoTossKey는 쓸 수 있는 토스 키가 하나도 없는 경우다.
+// errNoTossKey는 이 사용자가 아직 토스 키를 등록하지 않은 경우다.
 var errNoTossKey = errors.New("토스 키가 없다")
 
-// tossAPIFor는 이 사용자가 쓸 토스 클라이언트다. 키가 없으면 nil을 돌려준다.
+// tossAPIFor는 이 사용자가 등록한 키로 만든 클라이언트다. 등록하지 않았으면 nil.
 // 화면에 토스 기능을 보여줄지 정하는 데에도 쓴다.
-func (a *app) tossAPIFor(ctx context.Context, userID string) (*Toss, bool) {
-	if userID != "" {
-		k, ok, err := a.db.GetTossKey(ctx, userID)
-		if err != nil {
-			log.Printf("토스 키 조회 실패 (%s): %v", userID, err)
-		} else if ok {
-			return NewToss(k.AccessKey, k.SecretKey, k.PublisherID), true
-		}
+func (a *app) tossAPIFor(ctx context.Context, userID string) *Toss {
+	if userID == "" {
+		return nil
 	}
-	if a.toss == nil {
-		return nil, false
+	k, ok, err := a.db.GetTossKey(ctx, userID)
+	if err != nil {
+		log.Printf("토스 키 조회 실패 (%s): %v", userID, err)
+		return nil
 	}
-	return a.toss, false
+	if !ok {
+		return nil
+	}
+	return a.newToss(k.AccessKey, k.SecretKey, k.PublisherID)
 }
 
 // tossConnFor는 이 사용자의 연결을 토큰까지 갖춰 돌려준다.
 func (a *app) tossConnFor(ctx context.Context, userID string) (*tossConn, error) {
-	api, own := a.tossAPIFor(ctx, userID)
+	api := a.tossAPIFor(ctx, userID)
 	if api == nil {
 		return nil, errNoTossKey
 	}
 	a.tossState.mu.Lock()
 	defer a.tossState.mu.Unlock()
-	return a.connToken(ctx, api, own)
+	return a.connToken(ctx, api)
 }
 
 // connToken은 저장된 토큰을 쓰고, 없거나 곧 만료되면 새로 받는다.
-// 토큰은 키마다 하나이므로 공용 키를 쓰는 사람들은 같은 토큰을 나눠 쓴다.
-// tossState.mu를 잡은 채로 부른다.
-func (a *app) connToken(ctx context.Context, api *Toss, own bool) (*tossConn, error) {
+// 토큰은 사용자가 아니라 키마다 하나다. tossState.mu를 잡은 채로 부른다.
+func (a *app) connToken(ctx context.Context, api *Toss) (*tossConn, error) {
 	if token, exp, ok, err := a.db.GetTossToken(ctx, api.PublisherID); err != nil {
 		return nil, err
 	} else if ok && time.Until(exp) > tossTokenMargin {
-		return &tossConn{api: api, token: token, own: own}, nil
+		return &tossConn{api: api, token: token}, nil
 	}
 
 	token, exp, err := api.IssueToken(ctx)
@@ -70,7 +67,7 @@ func (a *app) connToken(ctx context.Context, api *Toss, own bool) (*tossConn, er
 	if err := a.db.SetTossToken(ctx, api.PublisherID, token, exp); err != nil {
 		return nil, err
 	}
-	return &tossConn{api: api, token: token, own: own}, nil
+	return &tossConn{api: api, token: token}, nil
 }
 
 // forget은 401을 받은 토큰을 버린다. 다음 시도에서 새로 받는다.

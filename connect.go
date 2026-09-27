@@ -28,11 +28,9 @@ type settingsData struct {
 	IsAdmin   bool
 	Error     string
 
-	// 토스 키. 자기 키를 등록했으면 OwnToss가 참이고 TossPublisher가 그 거래처다.
-	// 등록하지 않았으면 서버 공용 키를 쓰며, 그 키가 아예 없으면 SharedToss가 거짓이다.
-	OwnToss       bool
+	// 토스 키. 등록했으면 TossPublisher가 그 거래처다. 등록하지 않았으면 빈 값이고,
+	// 토스 기능은 쓸 수 없다.
 	TossPublisher string
-	SharedToss    bool
 }
 
 func (a *app) handleSettings(w http.ResponseWriter, r *http.Request) {
@@ -45,11 +43,9 @@ func (a *app) handleSettings(w http.ResponseWriter, r *http.Request) {
 		data.ExpiresAt = u.ExpiresAt.Local().Format("2006년 1월 2일")
 	}
 
-	data.SharedToss = a.toss != nil
 	if k, ok, err := a.db.GetTossKey(r.Context(), a.session.userID(r)); err != nil {
 		log.Printf("토스 키 조회 실패: %v", err)
 	} else if ok {
-		data.OwnToss = true
 		data.TossPublisher = k.PublisherID
 	}
 	a.render(w, "settings.html", data)
