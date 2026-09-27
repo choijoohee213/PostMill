@@ -149,7 +149,7 @@
 {{if .Posts}}
 <ul class="cards">
   {{range .Posts}}
-  <li class="card{{if eq .Status "generating"}} is-generating{{end}}">
+  <li class="card{{if eq .Status "generating"}} is-generating{{end}}{{if and (eq .Status "publishing") (not (canResume .))}} is-publishing{{end}}">
     {{if eq .Status "generating"}}
       <div class="card-head">
         <span class="badge badge-{{.Affiliate}}">{{affiliateKo .Affiliate}}</span>
@@ -215,9 +215,19 @@
       </div>
       {{end}}
       {{else if eq .Status "publishing"}}
-      <!-- 올라가는 중인 글은 고쳐도 올라간 글이 바뀌지 않아 손대지 못하게 둔다. -->
+      <!-- 올라가는 중인 글은 고쳐도 올라간 글이 바뀌지 않아 손대지 못하게 둔다.
+           진행 중이면 카드 전체를 덮어 눈에 띄게 하고, 멈췄으면 덮지 않는다.
+           멈춘 글은 이어서 게시를 눌러야 하므로 가리면 안 된다. -->
+      {{if not (canResume .)}}
+      <div class="card-busy" aria-live="polite">
+        <span class="card-busy-pill">
+          <span class="spinner" aria-hidden="true"></span>
+          올리는 중이에요…
+        </span>
+      </div>
+      {{end}}
       <div class="card-actions">
-        <span class="locked">{{template "lock_icon"}}{{if .ErrorMsg}}{{.ErrorMsg}}{{else if canResume .}}게시가 멈췄어요{{else}}올리는 중이에요…{{end}}</span>
+        <span class="locked">{{template "lock_icon"}}{{if .ErrorMsg}}{{.ErrorMsg}}{{else if canResume .}}게시가 멈췄어요{{else}}다 올라가면 게시완료로 옮겨요{{end}}</span>
         <span class="spacer"></span>
         {{if canResume .}}
           <form method="post" action="/drafts/{{.ID}}/resume" data-publish>
