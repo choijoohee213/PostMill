@@ -500,6 +500,32 @@ func (db *DB) ListImages(ctx context.Context, postID int64) ([]PostImage, error)
 	return imgs, rows.Err()
 }
 
+// ListImagesForPosts는 여러 글의 사진을 한 번에 읽어 글 id별로 묶어준다.
+// 목록 화면이 카드마다 따로 조회하면 카드 수만큼 질의가 나간다.
+func (db *DB) ListImagesForPosts(ctx context.Context, postIDs []int64) (map[int64][]PostImage, error) {
+	if len(postIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := db.pool.Query(ctx,
+		`SELECT post_id, id, token, created_at FROM post_images
+		 WHERE post_id = ANY($1) ORDER BY post_id, id`, postIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	byPost := map[int64][]PostImage{}
+	for rows.Next() {
+		var postID int64
+		var im PostImage
+		if err := rows.Scan(&postID, &im.ID, &im.Token, &im.CreatedAt); err != nil {
+			return nil, err
+		}
+		byPost[postID] = append(byPost[postID], im)
+	}
+	return byPost, rows.Err()
+}
+
 // GetImageData는 token으로 사진 바이트를 읽는다. 없으면 pgx.ErrNoRows.
 func (db *DB) GetImageData(ctx context.Context, token string) (string, []byte, error) {
 	var contentType string

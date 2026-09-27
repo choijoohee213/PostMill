@@ -33,6 +33,17 @@ var templateFuncs = template.FuncMap{
 	"canResume":     canResume,
 	"canEditImages": canEditImages,
 	"won":           won,
+	"replyOf":       replyOf,
+}
+
+// replyOf는 목록 카드에 접지 않고 보여줄 답글이다.
+// 링크가 아직 없으면 올릴 답글도 없으므로 빈 문자열이다.
+func replyOf(p *Post) string {
+	reply, err := ComposeReply(p.Affiliate, p.AffiliateLink)
+	if err != nil {
+		return ""
+	}
+	return reply
 }
 
 // canResume은 게시가 끊긴 채 멈춘 글인지 본다.
@@ -114,6 +125,9 @@ type listData struct {
 	LastAff    string // 추가 버튼이 쓸 제휴사
 	Query      string // 게시완료 검색어
 
+	// Images는 글 id별 사진이다. 카드를 펼치지 않아도 보여주므로 목록에서 함께 읽는다.
+	Images map[int64][]PostImage
+
 	// 만들기 칸
 	Error      string
 	Form       manualForm
@@ -161,6 +175,16 @@ func (a *app) renderList(w http.ResponseWriter, r *http.Request, extra listExtra
 		return
 	}
 
+	// 카드마다 사진까지 펼쳐 보여주므로 한 번에 읽는다. 실패해도 글은 보여준다.
+	ids := make([]int64, 0, len(posts))
+	for _, p := range posts {
+		ids = append(ids, p.ID)
+	}
+	images, err := a.db.ListImagesForPosts(r.Context(), ids)
+	if err != nil {
+		log.Printf("목록 사진 조회 실패: %v", err)
+	}
+
 	// 생성 중이거나 올리는 중인 카드가 있을 때만 폴링한다.
 	generating := false
 	for _, p := range posts {
@@ -192,6 +216,7 @@ func (a *app) renderList(w http.ResponseWriter, r *http.Request, extra listExtra
 		Missing:    missing,
 		LastAff:    lastAff,
 		Query:      query,
+		Images:     images,
 		Error:      extra.Error,
 		Form:       extra.Form,
 		TossAPI:    a.toss != nil,
