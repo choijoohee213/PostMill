@@ -510,23 +510,40 @@ main {
 
 /* 자동 생성 바 */
 /* 아코디언 카드 */
-.card-details summary {
-  padding: 14px;
-  cursor: pointer;
-  list-style: none;
-}
-
-.card-details summary::-webkit-details-marker { display: none; }
+.card-content { padding: 14px; }
 
 .card-product {
   margin: 0 0 6px;
   font-weight: 600;
 }
 
-.card-full {
-  padding: 0 14px 4px;
+/* 답글은 본문과 구분되게 점선 위에 둔다. 올라갈 순서 그대로다. */
+.card-reply {
+  margin-top: 10px;
+  padding-top: 4px;
   border-top: 1px dashed var(--line);
-  margin-top: 4px;
+}
+
+/* 사진은 가로로 늘어놓고 넘치면 밀어서 본다. 카드가 길어지지 않게 한다. */
+.card-photos {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.card-photos::-webkit-scrollbar { display: none; }
+.card-photo {
+  flex: 0 0 auto;
+  margin: 0;
+}
+.card-photo img {
+  display: block;
+  width: 96px;
+  height: 96px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--line);
 }
 
 .part-label {
