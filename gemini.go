@@ -52,22 +52,18 @@ var errRateLimited = errors.New("Gemini 한도에 걸렸다")
 const draftSystemPrompt = `너는 스레드(Threads)에 제휴 마케팅 글을 올리는 평범한 사람이다.
 광고 대행사가 아니라, 물건 써보고 좋아서 한마디 하는 사람의 말투로 쓴다.
 
-글은 두 부분으로 쓴다. 사이에 --- 만 있는 줄을 넣어 나눈다.
+글은 본문 한 장으로 끝낸다. 답글로 이어지지 않으니 후기를 여기에 다 담는다.
 
-[본문] --- 위쪽
-- 아주 짧게. 3~4줄, 80자 안팎. 이게 가장 중요하다.
-- 스레드는 훑어보는 곳이다. 길면 그냥 넘긴다.
+- 230자 안팎, 최대 400자. 8~12줄.
+- 첫 3~4줄이 가장 중요하다. 스레드는 훑어보는 곳이라 여기서 넘기면 그만이다.
 - 구성은 요청에 적힌 훅 유형을 따른다.
 - 장점은 딱 하나만. 메모에 여러 개 있어도 가장 공감될 것 하나만 고르고
-  나머지는 전부 버린다.
+  나머지는 전부 버린다. 그 하나를 깊게 쓴다.
+- 장점을 항목처럼 나열하지 말고 이야기하듯 쓴다.
 - 읽는 사람이 답글을 달고 싶어지게 끝낸다. 답글이 달려야 노출된다.
-
-[디테일] --- 아래쪽
-- 답글로 이어 붙일 내용이다. 4~6줄, 150자 안팎.
-- 본문에 쓴 말을 되풀이하지 마라. 장점을 항목처럼 나열하지 말고 이야기하듯 쓴다.
 ` + reviewFlow + `
 
-양쪽 모두 지킬 것:
+지킬 것:
 - 반말. 친구한테 카톡하듯.
 - 직접 써본 1인칭. "샀는데", "써보니까" 처럼.
 - 한 줄은 짧게 끊고 줄바꿈을 자주 넣는다. 다만 빈 줄은 넣지 마라.
@@ -82,7 +78,7 @@ const draftSystemPrompt = `너는 스레드(Threads)에 제휴 마케팅 글을 
 
 ` + humanTone + `
 ` + factRules + `
-다른 말 없이 본문, ---, 디테일만 출력한다.`
+다른 말 없이 본문만 출력한다.`
 
 // hookType은 본문 첫 줄을 여는 방식이다. 모든 글이 같은 구조면 타임라인에서
 // 같은 사람이 같은 글을 반복하는 것처럼 보이므로 초안마다 바꾼다.
@@ -110,18 +106,14 @@ func hookPrompt(h hookType) string {
 	return "\n\n이번 본문의 훅은 " + h.Name + "이다. " + h.Guide
 }
 
-// 본문과 디테일을 나누는 구분자.
+// 자동 제안에서 초안 여러 장을 나누는 구분자.
 const draftSeparator = "---"
 
 const (
-	// 본문은 타임라인에서 훑어보는 부분이라 아주 짧아야 한다.
-	bodyTargetChars = 80
-	bodyMaxChars    = 160
-
-	// 디테일은 답글이라 조금 더 길어도 된다. 후기 흐름(대안 → 아쉬운 점 →
-	// 맞는 사람 → 안내)을 담으려면 이 정도는 필요하다.
-	detailTargetChars = 150
-	detailMaxChars    = 300
+	// 후기 흐름(대안 → 아쉬운 점 → 맞는 사람 → 안내)을 본문 한 장에 담는다.
+	// 답글로 내보낼 곳이 없으므로 예전 본문(80자)보다 넉넉해야 한다.
+	bodyTargetChars = 230
+	bodyMaxChars    = 400
 )
 
 // Gemini는 Generative Language API를 표준 net/http로 호출한다.
@@ -200,14 +192,14 @@ type geminiResponse struct {
 // GenerateDraft는 메모를 바탕으로 본문 초안을 만든다.
 // 대가성 문구와 링크는 포함하지 않는다 (compose.go가 발행 시점에 붙인다).
 // 일시적인 실패는 maxAttempts만큼 다시 시도한다.
-func (g *Gemini) GenerateDraft(ctx context.Context, affiliate, memo string, room int, hook hookType) (string, string, error) {
-	var body, detail string
+func (g *Gemini) GenerateDraft(ctx context.Context, affiliate, memo string, room int, hook hookType) (string, error) {
+	var body string
 	err := retry(ctx, "초안 생성", func() error {
 		var err error
-		body, detail, err = g.generateOnce(ctx, affiliate, memo, room, hook)
+		body, err = g.generateOnce(ctx, affiliate, memo, room, hook)
 		return err
 	})
-	return body, detail, err
+	return body, err
 }
 
 // retry는 다시 시도할 만한 실패(retryableError)면 maxAttempts만큼 다시 부른다.
@@ -241,7 +233,7 @@ func retry(ctx context.Context, label string, fn func() error) error {
 	return fmt.Errorf("%d번 시도했지만 실패했다: %w", maxAttempts, lastErr)
 }
 
-func (g *Gemini) generateOnce(ctx context.Context, affiliate, memo string, room int, hook hookType) (string, string, error) {
+func (g *Gemini) generateOnce(ctx context.Context, affiliate, memo string, room int, hook hookType) (string, error) {
 	limit := room
 	if bodyMaxChars < limit {
 		limit = bodyMaxChars
@@ -251,28 +243,24 @@ func (g *Gemini) generateOnce(ctx context.Context, affiliate, memo string, room 
 상품 메모:
 %s
 
-본문은 %d자 안팎(최대 %d자), 디테일은 %d자 안팎으로 써라.
-본문에는 장점 하나만 담고 나머지는 디테일로 보내라.`,
-		affiliateKo(affiliate), memo, bodyTargetChars, limit, detailTargetChars) + hookPrompt(hook)
+본문은 %d자 안팎(최대 %d자)으로 써라.
+답글로 이어지지 않으니 후기를 본문 한 장에 다 담아라.`,
+		affiliateKo(affiliate), memo, bodyTargetChars, limit) + hookPrompt(hook)
 
 	raw, err := g.call(ctx, draftSystemPrompt, prompt)
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
 
-	body, detail := splitDraft(raw)
-	body, detail = polish(body), polish(detail)
+	body := polish(raw)
 	// 아래는 생성이 매번 달라지므로 다시 뽑으면 통과할 수 있다.
 	if body == "" {
-		return "", "", retryableError{err: fmt.Errorf("모델이 빈 응답을 반환했다")}
+		return "", retryableError{err: fmt.Errorf("모델이 빈 응답을 반환했다")}
 	}
 	if n := CharCount(body); n > limit {
-		return "", "", retryableError{err: fmt.Errorf("생성된 본문이 %d자로 상한 %d자를 넘는다", n, limit)}
+		return "", retryableError{err: fmt.Errorf("생성된 본문이 %d자로 상한 %d자를 넘는다", n, limit)}
 	}
-	if n := CharCount(detail); n > detailMaxChars {
-		return "", "", retryableError{err: fmt.Errorf("생성된 디테일이 %d자로 상한 %d자를 넘는다", n, detailMaxChars)}
-	}
-	return body, detail, nil
+	return body, nil
 }
 
 // call은 시스템 프롬프트와 요청을 보내고 응답 텍스트를 돌려준다.
@@ -439,19 +427,6 @@ func varyLaughs(s string) string {
 	})
 }
 
-// splitDraft는 모델 출력을 본문과 디테일로 나눈다.
-// 구분자가 없으면 전부 본문으로 본다. 디테일은 없어도 발행할 수 있다.
-func splitDraft(raw string) (body, detail string) {
-	lines := strings.Split(strings.TrimSpace(raw), "\n")
-	for i, line := range lines {
-		if strings.TrimSpace(line) == draftSeparator {
-			return strings.TrimSpace(strings.Join(lines[:i], "\n")),
-				strings.TrimSpace(strings.Join(lines[i+1:], "\n"))
-		}
-	}
-	return strings.TrimSpace(raw), ""
-}
-
 const autoSystemPrompt = `너는 스레드(Threads)에 제휴 마케팅 글을 올리는 평범한 사람이다.
 상품을 직접 고르고, 그 상품에 대한 글을 쓴다.
 
@@ -463,13 +438,13 @@ const autoSystemPrompt = `너는 스레드(Threads)에 제휴 마케팅 글을 �
   종류로만 적는다. 사용자가 이 이름으로 검색해서 직접 상품을 고를 것이다.
 - 사람들이 "아 이거 나도 불편했는데" 할 만한, 사소한 불편을 해결하는 물건이 좋다.
 
-출력 형식은 세 부분이고 사이에 --- 만 있는 줄을 넣는다.
+출력 형식은 두 부분이고 사이에 --- 만 있는 줄을 넣는다.
 
 [1] 상품 이름 한 줄. 검색어로 쓸 수 있게 짧게.
 ` + autoReplyParts + `
 ` + autoVoiceRules + `
 ` + factRules + `
-다른 말 없이 세 부분만 출력한다.`
+다른 말 없이 두 부분만 출력한다.`
 
 // factRules는 모든 초안이 지키는 사실 규칙이다.
 //
@@ -500,9 +475,9 @@ const pickRules = `- 2만원에서 5만원 사이의 물건이 좋다.
 - 금방 닳거나 떨어져서 다시 사는 물건, 하나 더 사두기 좋은 물건이 좋다.
 - 잘 안 맞아도 "뭐 이 정도면" 하고 넘길 수 있는, 실패해도 부담 없는 물건이 좋다.`
 
-// reviewFlow는 답글의 흐름이다. 광고는 장점만 말하고 후기는 고민과 아쉬움부터
+// reviewFlow는 본문의 흐름이다. 광고는 장점만 말하고 후기는 고민과 아쉬움부터
 // 말한다. 단점을 솔직하게 먼저 쓴 글이 더 믿음이 가서 잘 팔린다.
-const reviewFlow = `    답글은 후기처럼 이 순서로 흐른다. 각각 한 줄이면 충분하다:
+const reviewFlow = `    본문은 후기처럼 이 순서로 흐른다. 각각 한두 줄이면 충분하다:
     1) 사기 전에 뭘로 버텼는지, 뭐랑 고민했는지. 대안은 "그냥 ~로 버텼거든"처럼
        종류로만 말하고 다른 상품 이름을 쓰지 않는다.
     2) 아쉬운 점 하나를 솔직하게. 확인된 정보에 없는 결함을 지어내지 말고
@@ -534,17 +509,16 @@ const humanTone = `AI가 쓴 티가 나지 않게 (자주 틀리는 부분이다
 - "꿀템", "찐", "강추", "갓성비" 같은 뻔한 후기 말투를 쓰지 마라.
 `
 
-// autoReplyParts는 자동 초안의 본문과 답글 하나의 형식이다. 상품을 고르는 방식만
+// autoReplyParts는 자동 초안의 본문 형식이다. 상품을 고르는 방식만
 // 다르고 글 형식은 같으므로 쿠팡·토스 프롬프트가 함께 쓴다.
 const autoReplyParts = `---
-[2] 본문. 아주 짧게, 3~4줄, 80자 안팎.
-    구성은 요청에 적힌 훅 유형을 따른다. 장점은 딱 하나만 담는다.
----
-[3] 답글. 4~6줄, 150자 안팎. 본문에 쓴 말을 되풀이하지 마라.
+[2] 본문. 230자 안팎(최대 400자), 8~12줄.
+    구성은 요청에 적힌 훅 유형을 따른다. 장점은 딱 하나만 골라 깊게 쓴다.
+    답글로 이어지지 않으니 후기를 본문 한 장에 다 담는다.
 ` + reviewFlow
 
 // autoVoiceRules는 자동 초안의 말투 규칙이다.
-const autoVoiceRules = `말투 (2, 3 모두):
+const autoVoiceRules = `말투:
 - 반말. 친구한테 카톡하듯. 직접 써본 1인칭으로 쓴다.
 - 한 줄은 짧게 끊고 줄바꿈을 자주 넣는다.
 - "그리고", "또", "게다가", "무엇보다" 로 항목을 이어붙이지 마라.
@@ -562,7 +536,7 @@ const tossSystemPrompt = `너는 스레드(Threads)에 제휴 마케팅 글을 �
 ` + pickRules + `
 - 옷이나 신발처럼 사이즈를 골라야 하는 것, 신선식품은 피한다.
 
-출력 형식은 세 부분이고 사이에 --- 만 있는 줄을 넣는다.
+출력 형식은 두 부분이고 사이에 --- 만 있는 줄을 넣는다.
 
 [1] 고른 상품의 번호만. 숫자 하나.
 ` + autoReplyParts + `
@@ -571,7 +545,7 @@ const tossSystemPrompt = `너는 스레드(Threads)에 제휴 마케팅 글을 �
 - 상품명을 그대로 옮기지 말고 "이 무선 청소기"처럼 종류로 말한다.
 - 목록의 가격·할인·리뷰는 고르는 데만 쓰고 글에는 쓰지 않는다. 금방 바뀐다.
 
-다른 말 없이 세 부분만 출력한다.`
+다른 말 없이 두 부분만 출력한다.`
 
 // AutoDraft는 AI가 상품까지 고른 초안이다.
 type AutoDraft struct {
@@ -580,7 +554,6 @@ type AutoDraft struct {
 	AffiliateLink string // 토스 API로 발급한 쉐어링크. 쿠팡은 비어 있다
 	TacaItemID    int64  // 토스 API로 고른 상품. 쿠팡은 0
 	Body          string
-	Detail        string
 }
 
 // draftSpec은 한 번에 만드는 초안 중 한 장의 요구다.
@@ -624,11 +597,11 @@ func (g *Gemini) SuggestDrafts(ctx context.Context, affiliate string, avoid []st
 		drafts = make([]*AutoDraft, len(specs))
 		ok := 0
 		for i, chunk := range splitBatch(raw, len(specs)) {
-			parts := splitParts(chunk, 3)
-			if len(parts) < 3 {
+			parts := splitParts(chunk, 2)
+			if len(parts) < 2 {
 				continue
 			}
-			d := &AutoDraft{ProductName: firstLine(parts[0]), Body: polish(parts[1]), Detail: polish(parts[2])}
+			d := &AutoDraft{ProductName: firstLine(parts[0]), Body: polish(parts[1])}
 			if d.ProductName == "" || validDraft(d) != nil {
 				continue
 			}
@@ -680,8 +653,8 @@ func (g *Gemini) SuggestFromTossBatch(ctx context.Context, products []TossProduc
 		ok := 0
 		for i, chunk := range splitBatch(raw, len(hooks)) {
 			picks[i] = -1
-			parts := splitParts(chunk, 3)
-			if len(parts) < 3 {
+			parts := splitParts(chunk, 2)
+			if len(parts) < 2 {
 				continue
 			}
 			n, err := strconv.Atoi(strings.Trim(firstLine(parts[0]), " .[]번"))
@@ -689,7 +662,7 @@ func (g *Gemini) SuggestFromTossBatch(ctx context.Context, products []TossProduc
 			if err != nil || n < 1 || n > len(products) || used[n] {
 				continue
 			}
-			d := &AutoDraft{ProductName: products[n-1].DisplayName, Body: polish(parts[1]), Detail: polish(parts[2])}
+			d := &AutoDraft{ProductName: products[n-1].DisplayName, Body: polish(parts[1])}
 			if validDraft(d) != nil {
 				continue
 			}
@@ -759,16 +732,13 @@ func splitBatch(raw string, n int) []string {
 	return chunks
 }
 
-// validDraft는 본문과 답글이 길이 안에 드는지 본다.
+// validDraft는 본문이 길이 안에 드는지 본다.
 func validDraft(d *AutoDraft) error {
 	if d.Body == "" {
 		return fmt.Errorf("본문이 비었다")
 	}
 	if n := CharCount(d.Body); n > bodyMaxChars {
 		return fmt.Errorf("본문이 %d자로 상한 %d자를 넘는다", n, bodyMaxChars)
-	}
-	if n := CharCount(d.Detail); n > detailMaxChars {
-		return fmt.Errorf("답글이 %d자로 상한 %d자를 넘는다", n, detailMaxChars)
 	}
 	return nil
 }

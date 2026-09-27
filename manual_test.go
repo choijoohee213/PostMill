@@ -172,7 +172,7 @@ func TestManualMemo(t *testing.T) {
 func manualApp(t *testing.T, f *fakeTossServer) *app {
 	t.Helper()
 	g, _ := fakeGemini(t, func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, okBody("본문이야\n---\n디테일"))
+		fmt.Fprint(w, okBody("본문이야"))
 	})
 	a := &app{db: openTestDB(t), gemini: g, session: testSession(),
 		tpl: template.Must(template.New("").Funcs(templateFuncs).ParseFS(templateFS, "templates/*.html"))}
@@ -295,7 +295,7 @@ func TestHandleAuto_토스_카테고리를_고르면_그_카테고리에서_고�
 	}
 	a := manualApp(t, f)
 	a.gemini, _ = fakeGemini(t, func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, okBody("1\n---\n본문\n---\n답글\n=====\n2\n---\n본문\n---\n답글\n=====\n3\n---\n본문\n---\n답글"))
+		fmt.Fprint(w, okBody("1\n---\n본문\n=====\n2\n---\n본문\n=====\n3\n---\n본문"))
 	})
 	const user = "auto-cat"
 
@@ -327,7 +327,7 @@ func TestHandleRefresh_직접_고른_초안은_상품을_두고_글만_새로_�
 	const user = "refresh-manual"
 	id, _ := a.db.CreateManualDraft(ctx, user, ManualDraft{Affiliate: AffiliateCoupang, ProductName: "설거지통", AffiliateLink: "https://link.coupang.com/a"})
 	t.Cleanup(func() { a.db.DeletePost(ctx, user, id) })
-	a.db.SetGenerated(ctx, id, "옛 본문", "", "")
+	a.db.SetGenerated(ctx, id, "옛 본문")
 
 	login := httptest.NewRecorder()
 	a.session.issue(login, user, false)

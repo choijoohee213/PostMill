@@ -286,33 +286,29 @@ func (a *app) generate(id int64, affiliate, productName, memo string) {
 		return
 	}
 
-	body, detail, err := a.gemini.GenerateDraft(ctx, affiliate, manualMemo(productName, memo), room, randomHook())
+	body, err := a.gemini.GenerateDraft(ctx, affiliate, manualMemo(productName, memo), room, randomHook())
 	if err != nil {
 		fail(draftFailMessage(err), err)
 		return
 	}
-	if err := a.db.SetGenerated(ctx, id, body, detail, ""); err != nil {
+	if err := a.db.SetGenerated(ctx, id, body); err != nil {
 		fail("저장하지 못했습니다.", err)
 	}
 }
 
 type editData struct {
-	Post        *Post
-	Disclosure  string
-	Preview     string
-	Reply       string
-	Room        int
-	BodyTarget  int
-	DetailLimit int
-	Used        int
-	DetailUsed  int
-	Detail2Used int
-	TopicLimit  int
-	Topics      []string // 최근에 쓴 주제
-	Handle      string
-	Error       string
-	Images      []PostImage
-	MaxImages   int
+	Post       *Post
+	Preview    string
+	Reply      string
+	Room       int
+	BodyTarget int
+	Used       int
+	TopicLimit int
+	Topics     []string // 최근에 쓴 주제
+	Handle     string
+	Error      string
+	Images     []PostImage
+	MaxImages  int
 }
 
 // draftFor는 편집 가능한 초안을 읽는다. 생성 중이거나 없는 글은 목록으로 돌려보낸다.
@@ -350,9 +346,8 @@ func (a *app) renderEdit(w http.ResponseWriter, r *http.Request, p *Post, errMsg
 		handle = "@" + u.Username
 	}
 
-	disclosure, _ := disclosureFor(p.Affiliate)
 	room, _ := BodyRoom(p.Affiliate)
-	reply, _ := ComposeReply(p.AffiliateLink)
+	reply, _ := ComposeReply(p.Affiliate, p.AffiliateLink)
 
 	// 미리보기는 발행과 같은 함수로 만든다. 화면과 실제 발행물이 달라질 수 없다.
 	preview, err := Compose(p.Affiliate, p.Body)
@@ -372,22 +367,18 @@ func (a *app) renderEdit(w http.ResponseWriter, r *http.Request, p *Post, errMsg
 	}
 
 	a.render(w, "edit.html", editData{
-		Post:        p,
-		Images:      images,
-		MaxImages:   maxImages,
-		Disclosure:  disclosure,
-		Preview:     preview,
-		Reply:       reply,
-		Room:        room,
-		BodyTarget:  bodyTargetChars,
-		DetailLimit: detailMaxChars,
-		Used:        CharCount(strings.TrimSpace(p.Body)),
-		DetailUsed:  CharCount(strings.TrimSpace(p.Detail)),
-		Detail2Used: CharCount(strings.TrimSpace(p.Detail2)),
-		TopicLimit:  TopicMaxChars,
-		Topics:      topics,
-		Handle:      handle,
-		Error:       errMsg,
+		Post:       p,
+		Images:     images,
+		MaxImages:  maxImages,
+		Preview:    preview,
+		Reply:      reply,
+		Room:       room,
+		BodyTarget: bodyTargetChars,
+		Used:       CharCount(strings.TrimSpace(p.Body)),
+		TopicLimit: TopicMaxChars,
+		Topics:     topics,
+		Handle:     handle,
+		Error:      errMsg,
 	})
 }
 
@@ -426,8 +417,6 @@ func (a *app) handleDraftSave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	body := strings.TrimSpace(r.FormValue("body"))
-	detail := strings.TrimSpace(r.FormValue("detail"))
-	detail2 := strings.TrimSpace(r.FormValue("detail2"))
 	// 주제는 Threads 규칙에 맞지 않으면 게시할 때 거절당하므로 여기서 막는다.
 	topic, err := NormalizeTopic(r.FormValue("topic"))
 	if err != nil {
@@ -436,12 +425,12 @@ func (a *app) handleDraftSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// 저장 자체는 막지 않는다. 게시 가능한지는 미리보기와 카운터가 알려준다.
-	if err := a.db.UpdateBody(r.Context(), p.UserID, p.ID, body, detail, detail2, topic); err != nil {
+	if err := a.db.UpdateBody(r.Context(), p.UserID, p.ID, body, topic); err != nil {
 		log.Printf("본문 저장 실패 (id=%d): %v", p.ID, err)
 		a.renderEdit(w, r, p, "저장하지 못했습니다.")
 		return
 	}
-	p.Body, p.Detail, p.Detail2, p.Topic = body, detail, detail2, topic
+	p.Body, p.Topic = body, topic
 
 	http.Redirect(w, r, fmt.Sprintf("/drafts/%d", p.ID), http.StatusSeeOther)
 }
@@ -511,7 +500,7 @@ func (a *app) handlePublish(w http.ResponseWriter, r *http.Request) {
 		a.renderEdit(w, r, p, "게시할 수 없어요: "+err.Error())
 		return
 	}
-	reply, err := ComposeReply(p.AffiliateLink)
+	reply, err := ComposeReply(p.Affiliate, p.AffiliateLink)
 	if err != nil {
 		a.renderEdit(w, r, p, "게시할 수 없어요: "+err.Error())
 		return

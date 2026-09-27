@@ -2,32 +2,30 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"net/http"
-	"strings"
 	"time"
 )
 
 // publishTimeout은 게시 한 건에 허용하는 시간이다.
-// 게시물과 답글 세 개를 차례로 올리고 각 단계마다 컨테이너가 준비될
+// 게시물과 답글을 차례로 올리고 각 단계마다 컨테이너가 준비될
 // 때까지 기다리므로 넉넉히 잡는다.
 const publishTimeout = 8 * time.Minute
 
 // startPublish는 게시를 백그라운드로 넘긴다.
 //
-// 요청 안에서 처리하면 안 된다. 게시는 네 번의 발행과 그만큼의 대기로
+// 요청 안에서 처리하면 안 된다. 게시는 두 번의 발행과 그만큼의 대기로
 // 이루어져 요청 시간을 넘기고, 요청이 끊기면 컨텍스트가 취소되어
-// 답글이 중간에 빠진 채 멈춘다. 실제로 그런 일이 있었다.
-func (a *app) startPublish(p *Post, token, body, link string) {
-	go a.runPublish(p, token, body, link)
+// 답글이 빠진 채 멈춘다. 실제로 그런 일이 있었다.
+func (a *app) startPublish(p *Post, token, body, reply string) {
+	go a.runPublish(p, token, body, reply)
 }
 
 // runPublish는 게시물과 답글을 차례로 올리며 각 단계를 DB에 남긴다.
 //
 // 남기는 이유는 중간에 끊겼을 때 이어서 마치기 위해서다. 어디까지
 // 올라갔는지 모르면 같은 글을 다시 올리게 된다.
-func (a *app) runPublish(p *Post, token, body, link string) {
+func (a *app) runPublish(p *Post, token, body, reply string) {
 	ctx, cancel := context.WithTimeout(context.Background(), publishTimeout)
 	defer cancel()
 
@@ -93,32 +91,20 @@ func (a *app) runPublish(p *Post, token, body, link string) {
 		p.RepliesDone = 0
 	}
 
-	// 게시물 → 답글1 → 답글2 → 링크 순으로 사슬을 잇는다.
-	replies := []string{p.Detail, p.Detail2, link}
-	parent := p.LastReplyID
-	if parent == "" {
-		parent = postID
-	}
-
-	for i := p.RepliesDone; i < len(replies); i++ {
-		text := strings.TrimSpace(replies[i])
-		if text == "" {
-			// 빈 답글은 올리지 않지만, 지나간 것으로 기록해야 다시 시도하지 않는다.
-			if err := a.db.SetReplyDone(ctx, p.ID, i+1, parent); err != nil {
-				fail("진행 상태를 저장하지 못했습니다.", err)
-				return
-			}
-			continue
+	// 게시물 → 답글(문구 + 링크) 순으로 잇는다. 답글은 이것뿐이다.
+	// RepliesDone을 보고 건너뛰는 이유는 끊긴 뒤 이어받을 때 같은 답글을
+	// 두 번 올리지 않기 위해서다.
+	if p.RepliesDone == 0 {
+		parent := p.LastReplyID
+		if parent == "" {
+			parent = postID
 		}
-
-		replyID, err := a.threads.PublishText(ctx, token, text, parent, "")
+		replyID, err := a.threads.PublishText(ctx, token, reply, parent, "")
 		if err != nil {
-			fail(fmt.Sprintf("답글 %d을 올리지 못했습니다. 이어서 게시를 눌러보세요.", i+1), err)
+			fail("답글을 올리지 못했습니다. 이어서 게시를 눌러보세요.", err)
 			return
 		}
-		parent = replyID
-
-		if err := a.db.SetReplyDone(ctx, p.ID, i+1, parent); err != nil {
+		if err := a.db.SetReplyDone(ctx, p.ID, 1, replyID); err != nil {
 			fail("답글은 올라갔지만 진행 상태를 저장하지 못했습니다. 스레드에서 확인해주세요.", err)
 			return
 		}
@@ -173,7 +159,7 @@ func (a *app) resumeStuck(r *http.Request, u *ThreadsUser) {
 			log.Printf("끊긴 게시 조립 실패 (id=%d): %v", p.ID, err)
 			continue
 		}
-		reply, err := ComposeReply(p.AffiliateLink)
+		reply, err := ComposeReply(p.Affiliate, p.AffiliateLink)
 		if err != nil {
 			log.Printf("끊긴 게시 링크 없음 (id=%d): %v", p.ID, err)
 			continue
@@ -248,7 +234,7 @@ func (a *app) handleResumePublish(w http.ResponseWriter, r *http.Request) {
 		a.renderEdit(w, r, p, "게시할 수 없어요: "+err.Error())
 		return
 	}
-	reply, err := ComposeReply(p.AffiliateLink)
+	reply, err := ComposeReply(p.Affiliate, p.AffiliateLink)
 	if err != nil {
 		a.renderEdit(w, r, p, "게시할 수 없어요: "+err.Error())
 		return

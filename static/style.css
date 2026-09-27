@@ -293,13 +293,6 @@ main {
   font-size: 12px;
 }
 
-.disclosure {
-  margin: 0 0 12px;
-  padding-bottom: 10px;
-  border-bottom: 1px dashed var(--line);
-  color: var(--muted);
-  font-size: 13px;
-}
 
 .thread-body {
   margin: 0;
@@ -823,10 +816,6 @@ main {
   resize: vertical;
 }
 
-.thread .disclosure {
-  margin: 0 0 10px;
-  padding-bottom: 8px;
-}
 
 /* 한 장 더 채우기 카드 */
 .add-card { margin-top: 10px; }

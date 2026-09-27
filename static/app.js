@@ -73,8 +73,6 @@ if (document.getElementById('poll')) {
   }
 
   bind('body', 'preview-body', null, 'counter');
-  bind('detail', 'preview-detail', 'preview-detail-card', 'detail-counter');
-  bind('detail2', 'preview-detail2', 'preview-detail2-card', 'detail2-counter');
 
   // 주제는 칸을 벗어나면 저장한다. 연필 없이 바로 고치는 칸이다.
   (function () {

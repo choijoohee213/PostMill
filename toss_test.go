@@ -252,8 +252,8 @@ func TestTossCandidates(t *testing.T) {
 func TestSuggestFromTossBatch_장마다_서로_다른_상품을_고른다(t *testing.T) {
 	shortBackoff(t)
 	replies := []string{
-		"맨 위에 거\n---\n본문\n---\n답1", // 한 장도 못 알아보면 다시 뽑는다
-		"2번\n---\n본문이야\n---\n답글하나\n=====\n2\n---\n같은 상품\n---\n답\n=====\n1\n---\n첫째 본문\n---\n첫째 답글",
+		"맨 위에 거\n---\n본문", // 한 장도 못 알아보면 다시 뽑는다
+		"2번\n---\n본문이야\n=====\n2\n---\n같은 상품\n=====\n1\n---\n첫째 본문",
 	}
 	n := 0
 	g, calls := fakeGemini(t, func(w http.ResponseWriter, r *http.Request) {
@@ -269,7 +269,7 @@ func TestSuggestFromTossBatch_장마다_서로_다른_상품을_고른다(t *tes
 	if *calls != 2 {
 		t.Fatalf("호출 %d번, 한 장도 못 읽으면 다시 뽑아야 한다", *calls)
 	}
-	if picks[0] != 1 || drafts[0].ProductName != "둘째" || drafts[0].Body != "본문이야" || drafts[0].Detail != "답글하나" {
+	if picks[0] != 1 || drafts[0].ProductName != "둘째" || drafts[0].Body != "본문이야" {
 		t.Fatalf("첫 장 pick=%d d=%+v", picks[0], drafts[0])
 	}
 	if picks[1] != -1 || drafts[1] != nil {
@@ -282,7 +282,7 @@ func TestSuggestFromTossBatch_장마다_서로_다른_상품을_고른다(t *tes
 
 func TestSuggestDrafts_형식이_틀린_장만_버린다(t *testing.T) {
 	g, calls := fakeGemini(t, func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, okBody("청소기\n---\n본문1\n---\n답1\n=====\n구분자가 모자란 장\n=====\n텀블러\n---\n본문3\n---\n답3"))
+		fmt.Fprint(w, okBody("청소기\n---\n본문1\n=====\n구분자가 모자란 장\n=====\n텀블러\n---\n본문3"))
 	})
 	specs := []draftSpec{{Hook: hookTypes[0]}, {Hook: hookTypes[1]}, {Hook: hookTypes[2]}}
 	drafts, err := g.SuggestDrafts(context.Background(), AffiliateCoupang, nil, specs)
@@ -303,7 +303,7 @@ func TestSuggestDrafts_형식이_틀린_장만_버린다(t *testing.T) {
 func tossGemini(t *testing.T) *Gemini {
 	t.Helper()
 	g, _ := fakeGemini(t, func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, okBody("1\n---\n본문\n---\n답글하나"))
+		fmt.Fprint(w, okBody("1\n---\n본문"))
 	})
 	return g
 }
@@ -670,7 +670,7 @@ func TestCountPublishedToss_이_달과_누적을_센다(t *testing.T) {
 
 // 모델이 초안마다 "초안 1:" 머리말을 붙이면 그 줄이 상품 이름으로 저장됐다.
 func TestBatch_초안_머리말을_떼고_읽는다(t *testing.T) {
-	coupang := "초안 1:\n접이식 설거지통\n---\n본문1\n---\n답1\n=====\n**초안 2**\n텀블러\n---\n본문2\n---\n답2\n=====\n초안3: 틈새 수납장\n---\n본문3\n---\n답3"
+	coupang := "초안 1:\n접이식 설거지통\n---\n본문1\n=====\n**초안 2**\n텀블러\n---\n본문2\n=====\n초안3: 틈새 수납장\n---\n본문3"
 	g, _ := fakeGemini(t, func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, okBody(coupang)) })
 	specs := []draftSpec{{Hook: hookTypes[0]}, {Hook: hookTypes[1]}, {Hook: hookTypes[2]}}
 	drafts, err := g.SuggestDrafts(context.Background(), AffiliateCoupang, nil, specs)
@@ -688,7 +688,7 @@ func TestBatch_초안_머리말을_떼고_읽는다(t *testing.T) {
 		t.Fatalf("상품 이름=%v", names)
 	}
 
-	toss := "[초안 1]\n2\n---\n본문\n---\n답\n=====\n초안 2: 1\n---\n본문\n---\n답"
+	toss := "[초안 1]\n2\n---\n본문\n=====\n초안 2: 1\n---\n본문"
 	g2, _ := fakeGemini(t, func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, okBody(toss)) })
 	picks, tdrafts, err := g2.SuggestFromTossBatch(context.Background(), []TossProduct{{DisplayName: "첫째"}, {DisplayName: "둘째"}}, hookTypes[:2])
 	if err != nil {

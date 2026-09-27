@@ -218,7 +218,7 @@ func TestExpireImages_오래된_사진만_지우고_게시_중인_글은_남긴�
 
 	draft, _ := db.CreateDraft(ctx, user, AffiliateCoupang, "", "https://link/x", "메모")
 	t.Cleanup(func() { db.DeletePost(ctx, user, draft) })
-	db.SetGenerated(ctx, draft, "본문", "", "")
+	db.SetGenerated(ctx, draft, "본문")
 	publishing := newPublishable(t, db, user)
 
 	add := func(postID int64, tok string, daysAgo int) {
@@ -334,7 +334,7 @@ func TestHandleImageUpload(t *testing.T) {
 
 	id, _ := db.CreateDraft(ctx, user, AffiliateCoupang, "", "", "메모")
 	t.Cleanup(func() { db.DeletePost(ctx, user, id) })
-	db.SetGenerated(ctx, id, "본문", "", "")
+	db.SetGenerated(ctx, id, "본문")
 
 	good := encodeJPEG(t, 1080, 1080)
 
