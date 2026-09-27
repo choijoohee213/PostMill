@@ -150,8 +150,6 @@
         <div class="skeleton"><span></span><span></span></div>
       {{end}}
     {{else}}
-      {{/* 올라갈 모양을 그대로 보여준다. 접어두면 무엇을 검수하는지 알 수 없어
-           카드마다 펼쳐봐야 했다. 본문, 사진, 답글을 한눈에 둔다. */}}
       <div class="card-content">
         <div class="card-head">
           <span class="badge badge-{{.Affiliate}}">{{affiliateKo .Affiliate}}</span>
@@ -162,26 +160,35 @@
           <time>{{formatTime .CreatedAt}}</time>
         </div>
         {{if .ProductName}}<p class="card-product">{{.ProductName}}</p>{{end}}
-        <p class="thread-body">{{.Body}}</p>
-        {{if .Topic}}<p class="topic-tag">› {{.Topic}}</p>{{end}}
 
-        {{$imgs := index $.Images .ID}}
-        {{if $imgs}}
-        <div class="card-photos">
-          {{range $imgs}}
-          <figure class="card-photo">
-            <img src="/media/{{.Token}}" alt="첨부한 사진" loading="lazy">
-          </figure>
+        {{if eq $.ActiveTab "published"}}
+          {{/* 게시완료는 읽는 화면이 아니라 찾는 화면이다. 고칠 수도 없는 글이라
+               전문을 펼칠 이유가 없고, 계속 쌓이므로 짧아야 훑을 수 있다. */}}
+          <p class="card-body">{{preview .Body}}</p>
+        {{else}}
+          {{/* 검수가 목적인 탭은 올라갈 모양 그대로 보여준다. 접어두면 무엇을
+               검수하는지 알 수 없어 카드마다 펼쳐봐야 했다. */}}
+          <p class="thread-body">{{.Body}}</p>
+          {{if .Topic}}<p class="topic-tag">› {{.Topic}}</p>{{end}}
+
+          {{$imgs := index $.Images .ID}}
+          {{if $imgs}}
+          <div class="card-photos">
+            {{range $imgs}}
+            <figure class="card-photo">
+              <img src="/media/{{.Token}}" alt="첨부한 사진" loading="lazy">
+            </figure>
+            {{end}}
+          </div>
           {{end}}
-        </div>
-        {{end}}
 
-        {{$reply := replyOf .}}
-        {{if $reply}}
-        <div class="card-reply">
-          <p class="part-label">답글</p>
-          <p class="thread-body">{{$reply}}</p>
-        </div>
+          {{$reply := replyOf .}}
+          {{if $reply}}
+          <div class="card-reply">
+            <p class="part-label">답글</p>
+            <p class="thread-body">{{$reply}}</p>
+          </div>
+          {{end}}
         {{end}}
       </div>
 
