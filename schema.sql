@@ -78,3 +78,11 @@ ALTER TABLE posts ADD COLUMN IF NOT EXISTS topic text NOT NULL DEFAULT '';
 -- 다 담으므로 담을 것이 없다. 예전 글에 남은 내용은 함께 사라진다.
 ALTER TABLE posts DROP COLUMN IF EXISTS detail;
 ALTER TABLE posts DROP COLUMN IF EXISTS detail2;
+
+-- 본문에 쓴 가격. 0이면 가격을 쓰지 않은 글이다.
+-- 게시 직전에 이 값이 그대로인지 확인하고, 달라졌으면 게시를 멈춘다.
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS shown_price bigint NOT NULL DEFAULT 0;
+
+-- 하루특가의 마감 시각. 본문이 마감을 언급한 글에만 들어간다.
+-- 마감이 지나면 "오늘까지"가 거짓이 되므로 게시를 멈춘다.
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS deal_ends_at timestamptz;

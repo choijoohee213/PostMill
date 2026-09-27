@@ -37,13 +37,13 @@ func TestHook_세_가지_생성_모두_훅을_모델에게_알린다(t *testing.
 	ctx := context.Background()
 
 	rec := &promptRecorder{}
-	if _, err := rec.gemini(t, "본문이야").GenerateDraft(ctx, AffiliateCoupang, "메모", 400, h); err != nil {
+	if _, err := rec.gemini(t, "본문이야").GenerateDraft(ctx, AffiliateCoupang, "메모", 400, h, 0); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := rec.gemini(t, "상품\n---\n본문").SuggestDrafts(ctx, AffiliateCoupang, nil, []draftSpec{{Hook: h}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := rec.gemini(t, "1\n---\n본문").SuggestFromTossBatch(ctx, []TossProduct{{DisplayName: "a"}}, []hookType{h}); err != nil {
+	if _, _, err := rec.gemini(t, "1\n---\n본문").SuggestFromTossBatch(ctx, []TossProduct{{DisplayName: "a"}}, []hookType{h}, false); err != nil {
 		t.Fatal(err)
 	}
 	if len(rec.prompts) != 3 {
@@ -186,7 +186,7 @@ func TestGenerateDraft_빈_줄을_없애고_저장한다(t *testing.T) {
 	g, _ := fakeGemini(t, func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, okBody("첫 줄\n\n둘째 줄\n   \n\n셋째 줄"))
 	})
-	body, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400, hookTypes[0])
+	body, err := g.GenerateDraft(context.Background(), AffiliateCoupang, "메모", 400, hookTypes[0], 0)
 	if err != nil {
 		t.Fatal(err)
 	}

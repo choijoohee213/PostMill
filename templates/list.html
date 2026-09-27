@@ -79,6 +79,13 @@
     <p class="hint" data-when="deal">오늘만 하는 특가예요. 3시간 안에 끝나는 건 빼요.</p>
     <p class="hint" data-when="mine">최근 30일 동안 내 링크로 팔린 상품의 카테고리에서 골라요. 판매가 없으면 베스트에서 골라요.</p>
     <p class="hint" data-when="cat">고른 카테고리에서 잘 팔리는 상품이에요. 랭킹이 없는 카테고리면 한 단계 위에서 골라요.</p>
+
+    {{/* 가격은 토스 API로 고른 상품에만 있다. 기본은 쓰지 않음이다. */}}
+    <label class="check">
+      <input type="checkbox" name="show_price" value="1">
+      <span>가격도 쓰기</span>
+    </label>
+    <p class="hint">본문에 "하나에 7,400원이라" 처럼 가격을 써요. 게시할 때 가격이 바뀌어 있으면 올리지 않고 알려줘요.</p>
   </fieldset>
   {{end}}
 
@@ -102,6 +109,13 @@
       <input type="url" name="product_link" value="{{.Form.ProductLink}}" placeholder="https://toss.shopping/t/…" inputmode="url">
     </label>
     <p class="hint">상품 페이지 주소나 공유 링크를 붙여넣으면 상품 이름을 가져오고 쉐어링크를 만들어요.</p>
+
+    {{/* 토스 상세 조회로 가격을 알 수 있어 자동 초안과 같은 선택을 둔다. */}}
+    <label class="check">
+      <input type="checkbox" name="show_price" value="1">
+      <span>가격도 쓰기</span>
+    </label>
+    <p class="hint">본문에 "하나에 7,400원이라" 처럼 가격을 써요. 게시할 때 가격이 바뀌어 있으면 올리지 않고 알려줘요.</p>
   </fieldset>
   {{end}}
 

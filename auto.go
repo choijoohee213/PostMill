@@ -56,6 +56,8 @@ func (a *app) handleAuto(w http.ResponseWriter, r *http.Request) {
 	hookStart := rand.IntN(len(hookTypes))
 	area := r.FormValue("area")
 	source := r.FormValue("source")
+	// 가격은 토스 API로 고른 상품에만 있다. 쿠팡 초안에서는 체크해도 쓸 값이 없다.
+	showPrice := r.FormValue("show_price") != "" && affiliate == AffiliateToss
 	if source == "cat" {
 		source = r.FormValue("category")
 	}
@@ -79,7 +81,7 @@ func (a *app) handleAuto(w http.ResponseWriter, r *http.Request) {
 	}
 	// 세 장을 모델 호출 한 번으로 만든다. 무료 한도를 아끼고 상품도 겹치지 않는다.
 	if len(ids) > 0 {
-		go a.suggest(ids, userID, affiliate, avoid, source, specs)
+		go a.suggest(ids, userID, affiliate, avoid, source, specs, showPrice)
 	}
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -100,7 +102,8 @@ func (a *app) handleAutoOne(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
-	go a.suggestOne(id, userID, affiliate, a.recentProducts(r.Context(), userID))
+	// 새로 더하는 장은 고른 적이 없으므로 가격을 쓰지 않는다.
+	go a.suggestOne(id, userID, affiliate, a.recentProducts(r.Context(), userID), false)
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
@@ -125,7 +128,7 @@ func (a *app) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	if err := a.db.DeleteImages(r.Context(), p.UserID, p.ID); err != nil {
 		log.Printf("재생성 사진 삭제 실패 (id=%d): %v", p.ID, err)
 	}
-	go a.suggestOne(p.ID, p.UserID, p.Affiliate, a.recentProducts(r.Context(), p.UserID))
+	go a.suggestOne(p.ID, p.UserID, p.Affiliate, a.recentProducts(r.Context(), p.UserID), p.ShownPrice != 0)
 
 	http.Redirect(w, r, backTo(r), http.StatusSeeOther)
 }
@@ -158,14 +161,14 @@ func (a *app) recentProducts(ctx context.Context, userID string) []string {
 // 토스는 API가 연결돼 있으면 source(베스트·특가·내 실적·카테고리)의 실제 상품에서
 // 고르고 쉐어링크까지 발급한다. 쿠팡은 specs의 분야 안에서 상품 종류를 제안한다.
 // 한 장이라도 만들지 못하면 그 장만 실패로 남겨 다시 시도할 수 있게 한다.
-func (a *app) suggest(ids []int64, userID, affiliate string, avoid []string, source string, specs []draftSpec) {
+func (a *app) suggest(ids []int64, userID, affiliate string, avoid []string, source string, specs []draftSpec, showPrice bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 
 	drafts := make([]*AutoDraft, len(ids))
 	fails := make([]error, len(ids))
 	if affiliate == AffiliateToss && a.toss != nil {
-		drafts, fails = a.suggestToss(ctx, userID, source, avoid, specs)
+		drafts, fails = a.suggestToss(ctx, userID, source, avoid, specs, showPrice)
 	} else {
 		got, err := a.gemini.SuggestDrafts(ctx, affiliate, avoid, specs)
 		for i := range ids {
@@ -199,9 +202,12 @@ func (a *app) suggest(ids []int64, userID, affiliate string, avoid []string, sou
 
 // suggestOne은 한 장만 만든다 (한 장 더, 재생성, 다시 시도). 토스는 베스트,
 // 쿠팡은 아무 분야나, 훅은 무작위다.
-func (a *app) suggestOne(id int64, userID, affiliate string, avoid []string) {
+//
+// showPrice는 다시 만들 때 원래 글의 선택을 잇기 위한 것이다. 가격을 쓴 글을
+// 재생성했는데 가격이 사라지면 고른 적 없는 모양으로 바뀐다.
+func (a *app) suggestOne(id int64, userID, affiliate string, avoid []string, showPrice bool) {
 	spec := draftSpec{Hint: coupangAreas[rand.IntN(len(coupangAreas))].Hint, Hook: randomHook()}
-	a.suggest([]int64{id}, userID, affiliate, avoid, TossSourceBest, []draftSpec{spec})
+	a.suggest([]int64{id}, userID, affiliate, avoid, TossSourceBest, []draftSpec{spec}, showPrice)
 }
 
 // handleSaveLink는 상세 화면에서 입력한 제휴 링크를 저장한다.

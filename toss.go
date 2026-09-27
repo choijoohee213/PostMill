@@ -162,12 +162,13 @@ func (t *Toss) CreateLink(ctx context.Context, token string, tacaItemID int64, s
 
 // ProductDetail은 상품 상세 조회에서 쓰는 필드다.
 type ProductDetail struct {
-	TacaItemID  int64   `json:"tacaItemId"`
-	TacaID      int64   `json:"tacaId"`
-	DisplayName string  `json:"displayName"`
-	ProductURL  string  `json:"productUrl"`
-	IsSoldOut   bool    `json:"isSoldOut"`
-	CategoryIDs []int64 `json:"categoryIds"`
+	TacaItemID   int64   `json:"tacaItemId"`
+	TacaID       int64   `json:"tacaId"`
+	DisplayName  string  `json:"displayName"`
+	ProductURL   string  `json:"productUrl"`
+	IsSoldOut    bool    `json:"isSoldOut"`
+	DisplayPrice int64   `json:"displayPrice"` // 글에 쓴 가격이 그대로인지 확인한다
+	CategoryIDs  []int64 `json:"categoryIds"`
 }
 
 // ProductDetails는 옵션 ID(tacaItemId)로 상품의 최신 상태를 본다. 판매가 끝났거나
