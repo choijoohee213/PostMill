@@ -9,9 +9,9 @@
 <p class="notice">{{template "lock_icon"}}{{if .Post.ErrorMsg}}{{.Post.ErrorMsg}}{{else if canResume .Post}}게시가 중간에 멈췄어요. 이어서 누르면 남은 답글만 올려요.{{else}}올리는 중이에요. 다 올라가면 게시완료에서 볼 수 있어요.{{end}} 올리는 동안에는 고칠 수 없어요.</p>
 <p class="tbody published-body">{{.Preview}}</p>
 {{if .Post.Topic}}<p class="topic-tag">› {{.Post.Topic}}</p>{{end}}
-{{if .Post.Detail}}
+{{if .Reply}}
 <p class="part-label">답글</p>
-<p class="tbody published-body">{{.Post.Detail}}</p>
+<p class="tbody published-body">{{.Reply}}</p>
 {{end}}
 {{if .Images}}
 <div class="tphotos">
@@ -89,7 +89,6 @@
             {{end}}
             <button class="pencil" type="button" data-edit="body" title="본문 수정" aria-label="본문 수정">✎</button>
           </div>
-          <p class="disclosure">{{.Disclosure}}</p>
           <div data-view="body">
             <p class="tbody" id="preview-body">{{.Post.Body}}</p>
           </div>
@@ -122,51 +121,6 @@
         </div>
       </article>
 
-      <article class="tpost" id="preview-detail-card"{{if not .Post.Detail}} data-empty="1"{{end}}>
-        <div class="tpost-rail">
-          {{template "avatar_sm"}}
-          <span class="trail-line"></span>
-        </div>
-        <div class="tpost-main">
-          <div class="tpost-top">
-            <span class="thandle">{{.Handle}}</span>
-            <button class="pencil" type="button" data-edit="detail" title="답글 1 수정" aria-label="답글 1 수정">✎</button>
-          </div>
-          <div data-view="detail">
-            <p class="tbody" id="preview-detail">{{.Post.Detail}}</p>
-            <p class="tempty"{{if .Post.Detail}} hidden{{end}}>비어 있어요. 이대로 두면 이 답글은 올라가지 않아요.</p>
-          </div>
-          <div data-editor="detail" hidden>
-            <textarea name="detail" id="detail" rows="5" data-room="{{.DetailLimit}}">{{.Post.Detail}}</textarea>
-            <span class="counter" id="detail-counter" data-room="{{.DetailLimit}}">{{.DetailUsed}} / {{.DetailLimit}}</span>
-          </div>
-        </div>
-      </article>
-
-      {{/* 답글은 하나다. 예전에 두 번째 답글까지 만든 초안만 그 칸을 보여준다. */}}
-      {{if .Post.Detail2}}
-      <article class="tpost" id="preview-detail2-card"{{if not .Post.Detail2}} data-empty="1"{{end}}>
-        <div class="tpost-rail">
-          {{template "avatar_sm"}}
-          <span class="trail-line"></span>
-        </div>
-        <div class="tpost-main">
-          <div class="tpost-top">
-            <span class="thandle">{{.Handle}}</span>
-            <button class="pencil" type="button" data-edit="detail2" title="답글 2 수정" aria-label="답글 2 수정">✎</button>
-          </div>
-          <div data-view="detail2">
-            <p class="tbody" id="preview-detail2">{{.Post.Detail2}}</p>
-            <p class="tempty"{{if .Post.Detail2}} hidden{{end}}>비어 있어요. 이대로 두면 이 답글은 올라가지 않아요.</p>
-          </div>
-          <div data-editor="detail2" hidden>
-            <textarea name="detail2" id="detail2" rows="5" data-room="{{.DetailLimit}}">{{.Post.Detail2}}</textarea>
-            <span class="counter" id="detail2-counter" data-room="{{.DetailLimit}}">{{.Detail2Used}} / {{.DetailLimit}}</span>
-          </div>
-        </div>
-      </article>
-      {{end}}
-
       <article class="tpost tpost-last">
         <div class="tpost-rail">
           {{template "avatar_sm"}}
@@ -175,10 +129,11 @@
           <div class="tpost-top">
             <span class="thandle">{{.Handle}}</span>
           </div>
+          {{/* 대가성 문구와 링크가 함께 올라가는 단 하나의 답글이다. */}}
           {{if .Reply}}
-            <p class="tbody tlink">{{.Reply}}</p>
+            <p class="tbody">{{.Reply}}</p>
           {{else}}
-            <p class="tempty">제휴 링크를 넣으면 여기 올라가요.</p>
+            <p class="tempty">제휴 링크를 넣으면 대가성 문구와 함께 여기 올라가요.</p>
           {{end}}
         </div>
       </article>

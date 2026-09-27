@@ -90,7 +90,7 @@ func TestDraftSave_주제를_저장하고_잘못된_주제는_막는다(t *testi
 		t.Fatalf("초안 생성 실패: %v", err)
 	}
 	t.Cleanup(func() { db.DeletePost(ctx, user, id) })
-	if err := db.SetGenerated(ctx, id, "본문", "답글", ""); err != nil {
+	if err := db.SetGenerated(ctx, id, "본문"); err != nil {
 		t.Fatalf("초안 저장 실패: %v", err)
 	}
 
@@ -99,7 +99,7 @@ func TestDraftSave_주제를_저장하고_잘못된_주제는_막는다(t *testi
 		session: &session{secret: []byte("test-secret")}}
 
 	save := func(topic string) *httptest.ResponseRecorder {
-		form := url.Values{"body": {"본문"}, "detail": {"답글"}, "topic": {topic}}
+		form := url.Values{"body": {"본문"}, "topic": {topic}}
 		req := a.signedRequest(t, user, fmt.Sprintf("/drafts/%d", id), id)
 		req.Body = io.NopCloser(strings.NewReader(form.Encode()))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")

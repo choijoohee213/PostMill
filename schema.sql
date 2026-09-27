@@ -21,9 +21,6 @@ CREATE TABLE IF NOT EXISTS app_state (
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 
--- 본문에 이어 답글로 올릴 디테일. 본문을 짧게 두고 나머지를 여기 담는다.
-ALTER TABLE posts ADD COLUMN IF NOT EXISTS detail text NOT NULL DEFAULT '';
-
 -- 스레드 계정별 토큰. 사용자마다 자기 계정으로 발행한다.
 CREATE TABLE IF NOT EXISTS threads_users (
     user_id      text PRIMARY KEY,
@@ -41,9 +38,6 @@ CREATE INDEX IF NOT EXISTS posts_user_status_idx
 
 -- AI가 고른 상품 이름. 사용자가 이 이름으로 상품을 찾아 제휴 링크를 만든다.
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS product_name text NOT NULL DEFAULT '';
-
--- 두 번째 답글. 게시물 → 답글1 → 답글2 → 링크 순으로 이어진다.
-ALTER TABLE posts ADD COLUMN IF NOT EXISTS detail2 text NOT NULL DEFAULT '';
 
 -- 게시 진행 상태. 요청이 중간에 끊겨도 이어서 마칠 수 있게 남긴다.
 -- 이게 없으면 어디까지 올라갔는지 알 수 없어 같은 글을 다시 올리게 된다.
@@ -79,3 +73,8 @@ ALTER TABLE posts ADD COLUMN IF NOT EXISTS manual boolean NOT NULL DEFAULT false
 
 -- 스레드 주제(topic_tag). 글 하나에 하나만 붙고 본문에만 달린다.
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS topic text NOT NULL DEFAULT '';
+
+-- 상세 답글 칸을 없앤다. 답글은 대가성 문구와 링크 하나뿐이고 본문이 후기를
+-- 다 담으므로 담을 것이 없다. 예전 글에 남은 내용은 함께 사라진다.
+ALTER TABLE posts DROP COLUMN IF EXISTS detail;
+ALTER TABLE posts DROP COLUMN IF EXISTS detail2;

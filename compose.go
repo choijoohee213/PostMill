@@ -7,15 +7,18 @@ import (
 )
 
 // 대가성 문구. AI에게 생성시키지 않고 코드 상수로 관리한다 (SPEC 5-1).
-// 이 문구가 게시물 첫 부분에 없으면 양쪽 모두 고지 미흡으로 보고
-// 수익 몰수 또는 계정 정지 사유가 된다.
+// 제휴사가 지정한 문장이라 줄이거나 바꿔 쓸 수 없다.
+//
+// 본문이 아니라 링크와 함께 답글로 나가고, 답글 안에서도 맨 위에 온다.
+// 본문 500자를 문구에 쓰지 않으려고 고른 배치다. 스레드가 타임라인에서
+// 첫 답글까지 본문과 함께 보여주므로, 맨 위에 두면 더 눌러보지 않아도
+// 읽힌다. 링크 아래로 내려가면 그 이점이 사라진다.
 const (
 	disclosureCoupang = "이 게시물은 쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다."
 	disclosureToss    = "이 콘텐츠는 토스쇼핑 쉐어링크 활동의 일환으로, 링크를 통한 구매가 발생하면 일정 수수료를 지급받습니다."
 )
 
-// MaxChars는 문구 + 본문을 조립한 최종 형태의 글자 수 상한이다.
-// 제휴 링크는 본문에 넣지 않고 답글로 따로 올리므로 여기에 포함되지 않는다.
+// MaxChars는 게시물 하나에 허용되는 글자 수 상한이다. 본문과 답글에 각각 걸린다.
 const MaxChars = 500
 
 // CharCount는 바이트가 아니라 글자 수를 센다. 한글은 바이트로 세면 3배가 된다.
@@ -36,44 +39,46 @@ func disclosureFor(affiliate string) (string, error) {
 // 검증에 실패하면 문자열을 반환하지 않으므로, 검증되지 않은 텍스트가
 // 밖으로 나갈 수 없다. 미리보기와 발행이 모두 이 함수를 쓴다.
 //
-// 제휴 링크는 여기 들어가지 않는다. 스레드 알고리즘이 본문의 외부 링크가
-// 있는 글의 노출을 낮추기 때문에, 링크는 발행 직후 답글로 따로 올린다.
-// 대가성 문구는 규정상 본문 첫 부분에 있어야 하므로 답글로 뺄 수 없다.
+// 대가성 문구와 제휴 링크는 여기 들어가지 않고 답글 하나로 함께 나간다.
+// 링크는 스레드 알고리즘이 본문의 외부 링크가 있는 글의 노출을 낮추기
+// 때문이고, 문구는 본문 자리를 아끼기 위해서다. ComposeReply를 보라.
 func Compose(affiliate, body string) (string, error) {
-	disclosure, err := disclosureFor(affiliate)
-	if err != nil {
-		return "", err
-	}
-
 	body = strings.TrimSpace(body)
 	if body == "" {
 		return "", fmt.Errorf("본문이 비어 있다")
 	}
-
-	text := disclosure + "\n\n" + body
-	if err := Validate(affiliate, text); err != nil {
+	if err := Validate(affiliate, body); err != nil {
 		return "", err
 	}
-	return text, nil
+	return body, nil
 }
 
-// ComposeReply는 본문 글에 답글로 달 링크를 만든다.
-func ComposeReply(affiliateLink string) (string, error) {
+// ComposeReply는 본문 글에 달 답글 하나를 만든다. 답글은 이것뿐이다.
+//
+// 대가성 문구와 링크가 함께 들어간다. 문구가 본문이 아니라 여기 있는 것은
+// 본문 500자를 문구에 쓰지 않으려고 고른 배치다. disclosureCoupang 위의
+// 설명을 보라.
+func ComposeReply(affiliate, affiliateLink string) (string, error) {
+	disclosure, err := disclosureFor(affiliate)
+	if err != nil {
+		return "", err
+	}
 	affiliateLink = strings.TrimSpace(affiliateLink)
 	if affiliateLink == "" {
 		return "", fmt.Errorf("제휴 링크가 비어 있다")
 	}
-	return affiliateLink, nil
+
+	text := disclosure + "\n" + affiliateLink
+	if n := CharCount(text); n > MaxChars {
+		return "", fmt.Errorf("답글이 %d자로 상한 %d자를 넘는다", n, MaxChars)
+	}
+	return text, nil
 }
 
-// Validate는 발행 직전 가드다. 문구가 맨 앞에 있는지, 길이가 상한 안인지 확인한다.
+// Validate는 발행 직전 가드다. 제휴사를 아는지, 길이가 상한 안인지 확인한다.
 func Validate(affiliate, text string) error {
-	disclosure, err := disclosureFor(affiliate)
-	if err != nil {
+	if _, err := disclosureFor(affiliate); err != nil {
 		return err
-	}
-	if !strings.HasPrefix(text, disclosure) {
-		return fmt.Errorf("대가성 문구가 맨 앞에 없다: 발행 중단")
 	}
 	if n := CharCount(text); n > MaxChars {
 		return fmt.Errorf("조립 결과가 %d자로 상한 %d자를 넘는다", n, MaxChars)
@@ -81,19 +86,14 @@ func Validate(affiliate, text string) error {
 	return nil
 }
 
-// BodyRoom은 문구를 뺀 뒤 본문에 쓸 수 있는 글자 수를 반환한다.
+// BodyRoom은 본문에 쓸 수 있는 글자 수를 반환한다.
+// 대가성 문구가 답글로 빠졌으므로 본문은 상한을 그대로 쓴다.
 // 편집 화면의 카운터와 초안 생성 프롬프트가 같은 값을 쓴다.
 func BodyRoom(affiliate string) (int, error) {
-	disclosure, err := disclosureFor(affiliate)
-	if err != nil {
+	if _, err := disclosureFor(affiliate); err != nil {
 		return 0, err
 	}
-	// 조립 형태: 문구 + "\n\n" + 본문
-	room := MaxChars - CharCount(disclosure) - 2
-	if room < 0 {
-		room = 0
-	}
-	return room, nil
+	return MaxChars, nil
 }
 
 // 주제(topic_tag)는 글 하나에 하나만 붙는다. 50자까지이고
