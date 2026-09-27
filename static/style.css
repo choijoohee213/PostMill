@@ -91,6 +91,67 @@ main {
 
 .card.is-generating { padding: 14px; }
 
+/* 올리는 중인 카드. 작은 글씨 한 줄로는 티가 나지 않아 카드째로 표시한다.
+   내용을 흐리고 위에 도는 표시를 얹는다. 멈춘 글에는 붙이지 않는다 —
+   이어서 게시를 눌러야 하므로 가리면 안 된다. */
+.card.is-publishing {
+  position: relative;
+  overflow: hidden;
+}
+
+.card.is-publishing .card-content {
+  opacity: .35;
+  filter: grayscale(.4);
+}
+
+/* 흐려진 내용을 누르지 못하게 막는다. 눌러도 고칠 수 없는 상태다. */
+.card.is-publishing .card-content,
+.card.is-publishing .card-photos {
+  pointer-events: none;
+  user-select: none;
+}
+
+.card-busy {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.card-busy-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--card);
+  border: 1px solid var(--accent-line);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 8%);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2.5px solid var(--line);
+  border-top-color: var(--accent-line);
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 움직임을 줄이기로 한 사람에게는 돌리지 않는다. */
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation: none; }
+}
+
 .card-head {
   display: flex;
   align-items: center;
