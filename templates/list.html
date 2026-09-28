@@ -6,6 +6,16 @@
   {{end}}
 </nav>
 
+{{if .AffTabs}}
+<!-- 검수대기는 제휴사별로 따로 굴러간다. 한쪽을 새로 뽑아도 다른 쪽은 그대로
+     남으므로, 보고 있지 않은 쪽에 몇 장이 있는지 숫자로 알려준다. -->
+<nav class="tabs tabs-sub">
+  {{range .AffTabs}}
+  <a class="tab{{if eq .Key $.ActiveAff}} is-active{{end}}" href="/?tab=review&amp;aff={{.Key}}">{{.Label}}{{if .Count}} <em>{{.Count}}</em>{{end}}</a>
+  {{end}}
+</nav>
+{{end}}
+
 {{if eq .ActiveTab "published"}}
 <form class="search" method="get" action="/" role="search">
   <input type="hidden" name="tab" value="published">
@@ -99,7 +109,7 @@
   </fieldset>
 
   <fieldset data-when="ai">
-    <button class="btn btn-primary btn-block" type="submit" formaction="/auto" data-confirm="초안 {{.BatchSize}}개를 새로 만들어요. 직접 고르지 않았고 링크를 넣지 않은 기존 초안은 사라져요.">초안 {{.BatchSize}}개 채우기</button>
+    <button class="btn btn-primary btn-block" type="submit" formaction="/auto" data-confirm="초안 {{.BatchSize}}개를 새로 만들어요. 고른 제휴사의 기존 초안 중 직접 고르지 않았고 링크를 넣지 않은 것만 사라져요.">초안 {{.BatchSize}}개 채우기</button>
   </fieldset>
 
   {{if .TossAPI}}
@@ -238,7 +248,6 @@
       {{else}}
       <div class="card-actions">
         <form method="post" action="/drafts/{{.ID}}/refresh">
-          <input type="hidden" name="back" value="list">
           <button class="icon-btn" type="submit" title="이 카드만 새로 만들기" aria-label="새로 만들기">⟳</button>
         </form>
         <a class="btn btn-small" href="/drafts/{{.ID}}">수정</a>

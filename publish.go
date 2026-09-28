@@ -241,5 +241,5 @@ func (a *app) handleResumePublish(w http.ResponseWriter, r *http.Request) {
 	}
 
 	a.startPublish(p, u.AccessToken, text, reply)
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, reviewURL(p.Affiliate), http.StatusSeeOther)
 }

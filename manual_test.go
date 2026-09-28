@@ -242,7 +242,7 @@ func TestManualSubmit_토스는_링크만으로_상품과_쉐어링크를_채운
 	}
 
 	// 직접 고른 초안은 자동 생성 버튼이 지우지 않는다(메모가 없어도).
-	a.db.ClearAutoDrafts(context.Background(), user)
+	a.db.ClearAutoDrafts(context.Background(), user, AffiliateToss)
 	if _, err := a.db.GetPost(context.Background(), user, p.ID); err != nil {
 		t.Fatal("직접 고른 초안이 지워졌다")
 	}

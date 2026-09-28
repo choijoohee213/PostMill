@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/url"
 	"strings"
 	"testing"
@@ -67,5 +68,33 @@ func TestSearchURL_토스는_비운다(t *testing.T) {
 func TestSearchURL_이름이_비면_비운다(t *testing.T) {
 	if got := SearchURL(AffiliateCoupang, "   "); got != "" {
 		t.Fatalf("got=%q", got)
+	}
+}
+
+// 제휴사는 고르는 방식도 링크를 얻는 방식도 달라 따로 굴러간다. 한쪽을 새로
+// 뽑았다고 다른 쪽이 사라지면, 검수하던 초안이 말없이 없어진다.
+func TestClearAutoDrafts_고른_제휴사만_지운다(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	const user = "clear-scope"
+
+	mk := func(affiliate string) int64 {
+		id, err := db.CreateDraft(ctx, user, affiliate, "", "", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { db.DeletePost(ctx, user, id) })
+		return id
+	}
+	coupang, toss := mk(AffiliateCoupang), mk(AffiliateToss)
+
+	if err := db.ClearAutoDrafts(ctx, user, AffiliateToss); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.GetPost(ctx, user, toss); err == nil {
+		t.Error("토스 초안이 남았다")
+	}
+	if _, err := db.GetPost(ctx, user, coupang); err != nil {
+		t.Error("토스를 새로 뽑았는데 쿠팡 초안이 사라졌다")
 	}
 }

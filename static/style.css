@@ -66,6 +66,22 @@ main {
   font-weight: 600;
 }
 
+/* 제휴사 줄은 탭 안의 탭이라 한 단계 작고 위쪽 여백이 없다. */
+.tabs-sub {
+  padding-top: 0;
+}
+
+.tabs-sub .tab {
+  padding: 5px 12px;
+  font-size: 13px;
+}
+
+/* 보고 있지 않은 쪽에 몇 장 있는지 알려주는 숫자. */
+.tabs-sub em {
+  font-style: normal;
+  opacity: 0.65;
+}
+
 /* 카드 */
 .cards {
   list-style: none;

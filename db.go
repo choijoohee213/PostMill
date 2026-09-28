@@ -393,14 +393,19 @@ func (db *DB) DeleteThreadsUser(ctx context.Context, userID string) error {
 // 넣어둔 초안은 사용자가 시간을 들인 것이므로 남긴다. 직접 만든 초안도
 // 남긴다(manual, 또는 예전 초안은 메모로 구분한다). 토스 API가 자동으로 넣은
 // 링크는 사용자가 손댄 것이 아니므로 지워도 된다.
-func (db *DB) ClearAutoDrafts(ctx context.Context, userID string) error {
+//
+// 지우는 범위는 그 제휴사뿐이다. 쿠팡과 토스는 고르는 방식도 링크를 얻는
+// 방식도 달라 따로 굴러가므로, 토스를 새로 뽑았다고 쿠팡 초안이 사라지면
+// 안 된다.
+func (db *DB) ClearAutoDrafts(ctx context.Context, userID, affiliate string) error {
 	_, err := db.pool.Exec(ctx,
 		`DELETE FROM posts
 		 WHERE user_id = $1
-		   AND status = ANY($2)
+		   AND affiliate = $2
+		   AND status = ANY($3)
 		   AND (affiliate_link = '' OR link_auto)
 		   AND NOT manual AND memo = ''`,
-		userID, []string{StatusGenerating, StatusPending, StatusFailed})
+		userID, affiliate, []string{StatusGenerating, StatusPending, StatusFailed})
 	return err
 }
 
