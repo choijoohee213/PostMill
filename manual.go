@@ -86,7 +86,7 @@ func (a *app) handleManualSubmit(w http.ResponseWriter, r *http.Request) {
 
 	// 생성은 백그라운드로 넘기고 즉시 목록으로 보낸다.
 	go a.generate(id, d.Affiliate, d.ProductName, d.Memo, d.ShownPrice)
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, reviewURL(d.Affiliate), http.StatusSeeOther)
 }
 
 // errTossLinkUnknown은 붙여넣은 주소에서 토스 상품을 알아내지 못한 경우다.

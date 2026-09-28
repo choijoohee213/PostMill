@@ -42,10 +42,10 @@ func (a *app) handleAuto(w http.ResponseWriter, r *http.Request) {
 
 	avoid := a.recentProducts(r.Context(), userID)
 
-	// 기존 자동 초안을 버리고 새로 채운다. 버튼을 누를 때마다 세 장이
-	// 통째로 바뀌는 것이 이 버튼의 의미다.
+	// 이 제휴사의 기존 자동 초안을 버리고 새로 채운다. 버튼을 누를 때마다 세 장이
+	// 통째로 바뀌는 것이 이 버튼의 의미다. 다른 제휴사 초안은 그대로 둔다.
 	// 링크를 이미 넣어둔 초안은 사용자가 손을 댄 것이므로 남긴다.
-	if err := a.db.ClearAutoDrafts(r.Context(), userID); err != nil {
+	if err := a.db.ClearAutoDrafts(r.Context(), userID, affiliate); err != nil {
 		log.Printf("기존 자동 초안 정리 실패: %v", err)
 	}
 
@@ -84,7 +84,7 @@ func (a *app) handleAuto(w http.ResponseWriter, r *http.Request) {
 		go a.suggest(ids, userID, affiliate, avoid, source, specs, showPrice)
 	}
 
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, reviewURL(affiliate), http.StatusSeeOther)
 }
 
 // handleAutoOne은 카드 한 장만 더 채운다.
@@ -105,7 +105,7 @@ func (a *app) handleAutoOne(w http.ResponseWriter, r *http.Request) {
 	// 새로 더하는 장은 고른 적이 없으므로 가격을 쓰지 않는다.
 	go a.suggestOne(id, userID, affiliate, a.recentProducts(r.Context(), userID), false)
 
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, reviewURL(affiliate), http.StatusSeeOther)
 }
 
 // handleRefresh는 카드 하나를 버리고 새로 만든다.
@@ -130,7 +130,7 @@ func (a *app) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 	go a.suggestOne(p.ID, p.UserID, p.Affiliate, a.recentProducts(r.Context(), p.UserID), p.ShownPrice != 0)
 
-	http.Redirect(w, r, backTo(r), http.StatusSeeOther)
+	http.Redirect(w, r, reviewURL(p.Affiliate), http.StatusSeeOther)
 }
 
 // recentProducts는 최근에 다룬 상품 이름을 모은다.
@@ -223,12 +223,4 @@ func (a *app) handleSaveLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/drafts/"+strconv.FormatInt(p.ID, 10), http.StatusSeeOther)
-}
-
-// backTo는 작업을 마친 뒤 돌아갈 곳이다. 목록에서 눌렀으면 목록으로 돌아간다.
-func backTo(r *http.Request) string {
-	if to := r.FormValue("back"); to == "list" {
-		return "/"
-	}
-	return "/"
 }

@@ -248,10 +248,13 @@ if (document.getElementById('poll')) {
 
 // 홈 만들기 칸: 고른 제휴사·방식·목록에 맞는 칸만 보인다.
 // 숨긴 칸은 비활성으로 두어 함께 제출되지 않는다. 고른 것은 다음에 열 때 되살린다.
+//
+// 제휴사만 예외다. 그건 검수대기 탭이 정하고 서버가 골라 보내주므로 여기서
+// 되살리면 쿠팡 탭을 보면서 토스 초안을 만들게 된다.
 (function () {
   var form = document.getElementById('create');
   if (!form) return;
-  var names = ['affiliate', 'mode', 'source', 'area', 'category'];
+  var names = ['mode', 'source', 'area', 'category'];
   var hasError = !!form.querySelector('.error');
 
   function load() {

@@ -398,7 +398,7 @@ func TestAutoLink_자동_링크는_버리고_직접_넣은_링크는_남긴다(t
 	resaved := mk("https://toss.im/_m/same")
 	db.UpdateLink(ctx, user, resaved, "https://toss.im/_m/same") // 같은 값을 다시 저장해도 자동 그대로
 
-	if err := db.ClearAutoDrafts(ctx, user); err != nil {
+	if err := db.ClearAutoDrafts(ctx, user, AffiliateToss); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.GetPost(ctx, user, auto); err == nil {

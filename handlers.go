@@ -24,6 +24,27 @@ var tabs = []tab{
 	{"held", "보류", []string{StatusHeld}},
 }
 
+// affTab은 검수대기 안에서 제휴사를 갈라 보는 줄이다.
+//
+// 자동 생성이 제휴사별로 덮어쓰므로 쿠팡 세 장과 토스 세 장이 함께 남는다.
+// 한 줄에 여섯 장이면 지금 무엇을 검수하는 중인지 알기 어렵고, 비어 있는
+// 자리도 제휴사별로 세야 맞다. 다른 탭에는 없다. 게시완료는 검색으로 찾고,
+// 보류는 쌓이지 않는다.
+type affTab struct {
+	Key   string
+	Label string
+	Count int // 안 보이는 쪽에 글이 남아 있는지 알려준다
+}
+
+// reviewURL은 그 제휴사의 검수대기 탭이다. 초안을 만들거나 카드를 손본 뒤에는
+// 방금 다룬 글이 보이는 자리로 돌아가야 한다.
+func reviewURL(affiliate string) string {
+	if affiliateOf(affiliate) == nil {
+		return "/"
+	}
+	return "/?tab=review&aff=" + affiliate
+}
+
 var templateFuncs = template.FuncMap{
 	"preview":       preview,
 	"formatTime":    formatTime,
@@ -125,6 +146,10 @@ type listData struct {
 	LastAff    string // 추가 버튼이 쓸 제휴사
 	Query      string // 게시완료 검색어
 
+	// 검수대기의 제휴사 줄. 다른 탭에서는 비어 있어 줄이 그려지지 않는다.
+	AffTabs   []affTab
+	ActiveAff string
+
 	// Images는 글 id별 사진이다. 카드를 펼치지 않아도 보여주므로 목록에서 함께 읽는다.
 	Images map[int64][]PostImage
 
@@ -175,6 +200,43 @@ func (a *app) renderList(w http.ResponseWriter, r *http.Request, extra listExtra
 		return
 	}
 
+	// 생성 중이거나 올리는 중인 카드가 있을 때만 폴링한다.
+	// 제휴사로 거르기 전에 본다. 보고 있지 않은 쪽에서 생성이 끝나면 그쪽
+	// 탭의 숫자가 늘어야 하기 때문이다.
+	generating := false
+	for _, p := range posts {
+		if p.Status == StatusGenerating || (p.Status == StatusPublishing && !canResume(p)) {
+			generating = true
+			break
+		}
+	}
+
+	// 검수대기는 제휴사 한 곳만 보여준다.
+	activeAff := ""
+	var affTabs []affTab
+	if current.Key == "review" {
+		activeAff = AffiliateCoupang
+		if v := r.URL.Query().Get("aff"); affiliateOf(v) != nil {
+			activeAff = v
+		}
+		for _, o := range affiliateOptions {
+			n := 0
+			for _, p := range posts {
+				if p.Affiliate == o.Key {
+					n++
+				}
+			}
+			affTabs = append(affTabs, affTab{Key: o.Key, Label: o.Label, Count: n})
+		}
+		mine := make([]*Post, 0, len(posts))
+		for _, p := range posts {
+			if p.Affiliate == activeAff {
+				mine = append(mine, p)
+			}
+		}
+		posts = mine
+	}
+
 	// 카드마다 사진까지 펼쳐 보여주므로 한 번에 읽는다. 실패해도 글은 보여준다.
 	ids := make([]int64, 0, len(posts))
 	for _, p := range posts {
@@ -185,24 +247,13 @@ func (a *app) renderList(w http.ResponseWriter, r *http.Request, extra listExtra
 		log.Printf("목록 사진 조회 실패: %v", err)
 	}
 
-	// 생성 중이거나 올리는 중인 카드가 있을 때만 폴링한다.
-	generating := false
-	for _, p := range posts {
-		if p.Status == StatusGenerating || (p.Status == StatusPublishing && !canResume(p)) {
-			generating = true
-			break
-		}
-	}
-
-	// 검수대기가 세 장에 못 미치면 채울 자리를 알려준다.
+	// 보고 있는 제휴사가 세 장에 못 미치면 채울 자리를 알려준다.
 	missing := 0
 	lastAff := AffiliateCoupang
 	if current.Key == "review" {
+		lastAff = activeAff
 		if n := autoBatchSize - len(posts); n > 0 {
 			missing = n
-		}
-		if len(posts) > 0 {
-			lastAff = posts[0].Affiliate
 		}
 	}
 
@@ -216,6 +267,8 @@ func (a *app) renderList(w http.ResponseWriter, r *http.Request, extra listExtra
 		Missing:    missing,
 		LastAff:    lastAff,
 		Query:      query,
+		AffTabs:    affTabs,
+		ActiveAff:  activeAff,
 		Images:     images,
 		Error:      extra.Error,
 		Form:       extra.Form,
@@ -287,7 +340,7 @@ func (a *app) handleRetry(w http.ResponseWriter, r *http.Request) {
 		go a.generate(id, p.Affiliate, p.ProductName, p.Memo, p.ShownPrice)
 	}
 
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, reviewURL(p.Affiliate), http.StatusSeeOther)
 }
 
 // generate는 요청과 무관하게 도는 백그라운드 작업이다.
@@ -475,18 +528,20 @@ func (a *app) handleRegenerate(w http.ResponseWriter, r *http.Request) {
 	}
 	go a.generate(p.ID, p.Affiliate, p.ProductName, p.Memo, p.ShownPrice)
 
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, reviewURL(p.Affiliate), http.StatusSeeOther)
 }
 
 func (a *app) handleHold(w http.ResponseWriter, r *http.Request) {
-	a.changeStatus(w, r, StatusHeld, "/?tab=held")
+	a.changeStatus(w, r, StatusHeld, func(*Post) string { return "/?tab=held" })
 }
 
 func (a *app) handleUnhold(w http.ResponseWriter, r *http.Request) {
-	a.changeStatus(w, r, StatusPending, "/")
+	a.changeStatus(w, r, StatusPending, func(p *Post) string { return reviewURL(p.Affiliate) })
 }
 
-func (a *app) changeStatus(w http.ResponseWriter, r *http.Request, status, redirect string) {
+// redirect가 글을 받는 이유는 검수대기로 돌아갈 때 그 글의 제휴사 탭을
+// 골라야 하기 때문이다.
+func (a *app) changeStatus(w http.ResponseWriter, r *http.Request, status string, redirect func(*Post) string) {
 	p, ok := a.editableDraft(w, r)
 	if !ok {
 		return
@@ -496,7 +551,7 @@ func (a *app) changeStatus(w http.ResponseWriter, r *http.Request, status, redir
 		a.renderEdit(w, r, p, "상태를 바꾸지 못했습니다.")
 		return
 	}
-	http.Redirect(w, r, redirect, http.StatusSeeOther)
+	http.Redirect(w, r, redirect(p), http.StatusSeeOther)
 }
 
 func (a *app) handleDelete(w http.ResponseWriter, r *http.Request) {
@@ -509,7 +564,7 @@ func (a *app) handleDelete(w http.ResponseWriter, r *http.Request) {
 		a.renderEdit(w, r, p, "삭제하지 못했습니다.")
 		return
 	}
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, reviewURL(p.Affiliate), http.StatusSeeOther)
 }
 
 // handlePublish는 검수를 마친 초안을 스레드에 올린다.
@@ -560,7 +615,7 @@ func (a *app) handlePublish(w http.ResponseWriter, r *http.Request) {
 	// 게시 중인 글은 검수대기 탭에 있고, 거기서만 폴링이 돈다.
 	a.startPublish(p, u.AccessToken, text, reply)
 
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, reviewURL(p.Affiliate), http.StatusSeeOther)
 }
 
 // categoriesFor는 만들기 칸이 보이는 검수대기 탭에서만 토스 카테고리를 준비한다.
