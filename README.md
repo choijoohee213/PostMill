@@ -23,10 +23,15 @@
 ```
 DATABASE_URL
 SESSION_SECRET
+ENCRYPTION_KEY
 GEMINI_API_KEY
 THREADS_APP_ID
 THREADS_APP_SECRET
 ```
+
+`ENCRYPTION_KEY`는 사용자가 넣은 토스 쉐어링크 키를 DB에 저장하기 전에 잠그는
+열쇠다. DB 덤프가 새어 나가도 제휴 키를 바로 쓰지 못하게 한다. 한번 정하면
+바꾸지 않는다. 바꾸면 저장해 둔 키를 열 수 없어 각자 다시 넣어야 한다.
 
 로그인은 액세스 토큰을 붙여넣어 한다. 토큰의 주인으로 로그인되므로 브라우저에
 어떤 Meta 계정이 로그인돼 있든 상관없다. 토큰은 `threads_users` 테이블에
@@ -55,7 +60,7 @@ go run .
 **지역은 Ohio로 둔다.** Neon 프로젝트와 같은 지역이어야 한다. 페이지 한 번을 그리는 데
 DB를 여러 번 오가므로, 서버-DB 거리가 사용자-서버 거리보다 체감에 크게 영향을 준다.
 
-환경변수 중 `SESSION_SECRET`은 Render가 자동 생성한다. 나머지는 대시보드에서 직접 입력한다.
+환경변수 중 `SESSION_SECRET`과 `ENCRYPTION_KEY`는 Render가 자동 생성한다. 나머지는 대시보드에서 직접 입력한다.
 
 무료 플랜은 비활성 시 서비스가 잠들어 첫 접속에 30초~1분이 걸린다. 하루 3~4회
 접속하는 도구라 감수한다.

@@ -46,7 +46,14 @@ func main() {
 		log.Fatal("DATABASE_URL이 설정되지 않았습니다")
 	}
 
-	db, err := Open(context.Background(), databaseURL)
+	// 제휴 키를 잠그는 열쇠다. 이 값이 바뀌면 저장해 둔 키를 열 수 없어
+	// 사용자가 다시 넣어야 하므로, 한번 정하면 바꾸지 않는다.
+	encKey := os.Getenv("ENCRYPTION_KEY")
+	if encKey == "" {
+		log.Fatal("ENCRYPTION_KEY가 설정되지 않았습니다")
+	}
+
+	db, err := Open(context.Background(), databaseURL, encKey)
 	if err != nil {
 		log.Fatalf("DB 연결 실패: %v", err)
 	}

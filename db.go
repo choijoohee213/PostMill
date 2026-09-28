@@ -58,10 +58,18 @@ type Post struct {
 
 type DB struct {
 	pool *pgxpool.Pool
+
+	// box는 제휴 키처럼 새어 나가면 남이 바로 쓸 수 있는 값을 잠근다.
+	box *secretBox
 }
 
 // Open은 커넥션 풀을 열고 schema.sql을 실행한다.
-func Open(ctx context.Context, databaseURL string) (*DB, error) {
+// secret은 저장할 때 값을 잠그는 데 쓴다.
+func Open(ctx context.Context, databaseURL, secret string) (*DB, error) {
+	box, err := newSecretBox(secret)
+	if err != nil {
+		return nil, err
+	}
 	pool, err := pgxpool.New(ctx, databaseURL)
 	if err != nil {
 		return nil, err
@@ -70,7 +78,7 @@ func Open(ctx context.Context, databaseURL string) (*DB, error) {
 		pool.Close()
 		return nil, err
 	}
-	return &DB{pool: pool}, nil
+	return &DB{pool: pool, box: box}, nil
 }
 
 func (db *DB) Close() { db.pool.Close() }
@@ -355,7 +363,11 @@ type ThreadsUser struct {
 
 // SaveThreadsUser는 로그인한 사용자의 토큰을 저장한다.
 func (db *DB) SaveThreadsUser(ctx context.Context, u ThreadsUser) error {
-	_, err := db.pool.Exec(ctx,
+	token, err := db.box.seal(u.AccessToken)
+	if err != nil {
+		return err
+	}
+	_, err = db.pool.Exec(ctx,
 		`INSERT INTO threads_users (user_id, username, access_token, expires_at)
 		 VALUES ($1, $2, $3, $4)
 		 ON CONFLICT (user_id) DO UPDATE SET
@@ -363,7 +375,7 @@ func (db *DB) SaveThreadsUser(ctx context.Context, u ThreadsUser) error {
 		   access_token = EXCLUDED.access_token,
 		   expires_at = EXCLUDED.expires_at,
 		   updated_at = now()`,
-		u.UserID, u.Username, u.AccessToken, u.ExpiresAt)
+		u.UserID, u.Username, token, u.ExpiresAt)
 	return err
 }
 
@@ -378,6 +390,11 @@ func (db *DB) GetThreadsUser(ctx context.Context, userID string) (*ThreadsUser, 
 	}
 	if err != nil {
 		return nil, false, err
+	}
+	// 암호화를 붙이기 전에 저장된 토큰은 평문이다. 열리지 않으면 그대로 쓰고,
+	// 만료 전 갱신 때 다시 저장되면서 잠긴다.
+	if plain, err := db.box.open(u.AccessToken); err == nil {
+		u.AccessToken = plain
 	}
 	return &u, true, nil
 }
@@ -623,11 +640,25 @@ func (db *DB) GetTossKey(ctx context.Context, userID string) (*TossKey, bool, er
 	if err != nil {
 		return nil, false, err
 	}
+	if k.AccessKey, err = db.box.open(k.AccessKey); err != nil {
+		return nil, false, err
+	}
+	if k.SecretKey, err = db.box.open(k.SecretKey); err != nil {
+		return nil, false, err
+	}
 	return k, true, nil
 }
 
 func (db *DB) SetTossKey(ctx context.Context, k *TossKey) error {
-	_, err := db.pool.Exec(ctx,
+	access, err := db.box.seal(k.AccessKey)
+	if err != nil {
+		return err
+	}
+	secret, err := db.box.seal(k.SecretKey)
+	if err != nil {
+		return err
+	}
+	_, err = db.pool.Exec(ctx,
 		`INSERT INTO toss_keys (user_id, access_key, secret_key, publisher_id)
 		 VALUES ($1, $2, $3, $4)
 		 ON CONFLICT (user_id) DO UPDATE SET
@@ -635,7 +666,7 @@ func (db *DB) SetTossKey(ctx context.Context, k *TossKey) error {
 		   secret_key = EXCLUDED.secret_key,
 		   publisher_id = EXCLUDED.publisher_id,
 		   updated_at = now()`,
-		k.UserID, k.AccessKey, k.SecretKey, k.PublisherID)
+		k.UserID, access, secret, k.PublisherID)
 	return err
 }
 
@@ -657,18 +688,25 @@ func (db *DB) GetTossToken(ctx context.Context, publisherID string) (string, tim
 	if err != nil {
 		return "", time.Time{}, false, err
 	}
+	if token, err = db.box.open(token); err != nil {
+		return "", time.Time{}, false, err
+	}
 	return token, exp, true, nil
 }
 
 func (db *DB) SetTossToken(ctx context.Context, publisherID, token string, exp time.Time) error {
-	_, err := db.pool.Exec(ctx,
+	sealed, err := db.box.seal(token)
+	if err != nil {
+		return err
+	}
+	_, err = db.pool.Exec(ctx,
 		`INSERT INTO toss_tokens (publisher_id, access_token, expires_at)
 		 VALUES ($1, $2, $3)
 		 ON CONFLICT (publisher_id) DO UPDATE SET
 		   access_token = EXCLUDED.access_token,
 		   expires_at = EXCLUDED.expires_at,
 		   updated_at = now()`,
-		publisherID, token, exp)
+		publisherID, sealed, exp)
 	return err
 }
 

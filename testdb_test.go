@@ -25,7 +25,7 @@ func openTestDB(t *testing.T) *DB {
 		t.Fatal("TEST_DATABASE_URL이 DATABASE_URL과 같습니다. 별도 DB를 지정하세요.")
 	}
 
-	db, err := Open(context.Background(), url)
+	db, err := Open(context.Background(), url, "테스트용 암호화 열쇠")
 	if err != nil {
 		t.Fatalf("테스트 DB 연결 실패: %v", err)
 	}

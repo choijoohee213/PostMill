@@ -26,6 +26,10 @@ services:
         sync: false
       - key: SESSION_SECRET
         generateValue: true
+      # 저장한 제휴 키를 잠그는 열쇠. 바꾸면 저장해 둔 키를 열 수 없어
+      # 사용자가 다시 넣어야 한다.
+      - key: ENCRYPTION_KEY
+        generateValue: true
       - key: THREADS_APP_ID
         sync: false
       - key: THREADS_APP_SECRET
