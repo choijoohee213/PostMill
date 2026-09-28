@@ -113,14 +113,14 @@ func TestList_검수대기는_제휴사_한_쪽만_보여준다(t *testing.T) {
 	}
 
 	// 게시완료에는 제휴사 줄이 없다. 거기선 검색으로 찾는다.
-	if strings.Contains(get("/?tab=published"), "tabs-sub") {
+	if strings.Contains(get("/?tab=published"), "aff-tabs") {
 		t.Error("게시완료에 제휴사 줄이 생겼다")
 	}
 }
 
 // tabsOf는 실패 메시지에 탭 줄만 보여준다. 화면 전체를 찍으면 읽을 수 없다.
 func tabsOf(html string) string {
-	i := strings.Index(html, `class="tabs tabs-sub"`)
+	i := strings.Index(html, `class="aff-tabs"`)
 	if i < 0 {
 		return "제휴사 줄이 없다"
 	}

@@ -151,9 +151,9 @@
      전체가 아니라 아래 목록이고, 위 칸이 어느 제휴사를 만들지도 이 줄을
      따라간다. 검수대기는 제휴사별로 따로 굴러가므로 한쪽을 새로 뽑아도
      다른 쪽은 남는다. 보고 있지 않은 쪽 장수를 숫자로 알려주는 이유다. -->
-<nav class="tabs tabs-sub">
+<nav class="aff-tabs">
   {{range .AffTabs}}
-  <a class="tab{{if eq .Key $.ActiveAff}} is-active{{end}}" href="/?tab=review&amp;aff={{.Key}}">{{.Label}}{{if .Count}} <em>{{.Count}}</em>{{end}}</a>
+  <a class="aff-tab{{if eq .Key $.ActiveAff}} is-active{{end}}" href="/?tab=review&amp;aff={{.Key}}"{{if eq .Key $.ActiveAff}} aria-current="page"{{end}}>{{.Label}}{{if .Count}} <em>{{.Count}}</em>{{end}}</a>
   {{end}}
 </nav>
 {{end}}

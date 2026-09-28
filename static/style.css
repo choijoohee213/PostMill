@@ -66,21 +66,40 @@ main {
   font-weight: 600;
 }
 
-/* 제휴사 줄은 탭 안의 탭이라 한 단계 작다. 만들기 칸과 목록 사이에 있어
-   아래쪽에 더 붙여 어느 쪽을 가리키는지 보이게 한다. */
-.tabs-sub {
-  padding: 14px 0 6px;
+/* 제휴사 줄: 쇼핑몰 목록 위에 있는 그 탭이다. 두 칸이 폭을 반씩 나눠 갖고
+   고른 쪽에만 밑줄이 진해진다. 위 탭과 같은 알약 모양으로 두면 둘이 같은
+   층으로 보여, 어느 것이 화면을 나누고 어느 것이 목록을 나누는지 헷갈린다.
+   밑줄은 선 하나로 아래 목록을 가리키므로 그 관계가 드러난다. */
+.aff-tabs {
+  display: flex;
+  margin: 16px 0 12px;
+  border-bottom: 1px solid var(--line);
 }
 
-.tabs-sub .tab {
-  padding: 5px 12px;
-  font-size: 13px;
+.aff-tab {
+  flex: 1;
+  padding: 11px 0;
+  /* 밑줄이 .aff-tabs의 선을 덮도록 1px 내려 겹친다. */
+  margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-size: 15px;
+  text-align: center;
+  text-decoration: none;
+}
+
+.aff-tab.is-active {
+  border-bottom-color: var(--text);
+  color: var(--text);
+  font-weight: 700;
 }
 
 /* 보고 있지 않은 쪽에 몇 장 있는지 알려주는 숫자. */
-.tabs-sub em {
+.aff-tab em {
+  margin-left: 3px;
   font-style: normal;
-  opacity: 0.65;
+  font-weight: 400;
+  opacity: 0.6;
 }
 
 /* 카드 */
